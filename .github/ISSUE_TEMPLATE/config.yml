@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 使用问题交流
+    url: https://github.com/xingyutan42/class-inspection/discussions
+    about: 不确定是 Bug 还是使用方式的疑问，欢迎到 Discussions 讨论

@@ -4,6 +4,7 @@
 
 **一套开箱即用的班级课堂检查管理系统 —— 组员登记选课、填报结果，管理员看进度、审修改、一键导出台账**
 
+[![Test](https://github.com/xingyutan42/class-inspection/actions/workflows/test.yml/badge.svg)](https://github.com/xingyutan42/class-inspection/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Vue 3](https://img.shields.io/badge/Vue-3.x-4FC08D?logo=vuedotjs&logoColor=white)](https://vuejs.org)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-14+-336791?logo=postgresql&logoColor=white)](https://postgresql.org)
@@ -173,7 +174,7 @@ tests/
 
 ## 🤝 参与贡献
 
-欢迎 Issue 与 PR！提交前请：
+欢迎 Issue 与 PR！环境搭建与项目铁律详见 [CONTRIBUTING.md](CONTRIBUTING.md)，核心三条：
 
 1. 保证 `node tests/week.test.mjs` 通过
 2. 改动前端后更新 `index.html` 的 `?v=` 版本号
