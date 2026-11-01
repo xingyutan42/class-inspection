@@ -99,7 +99,12 @@ psql "<连接串>" -f db/migrate-counselor-map.example.sql
 
 ### 3. 配置并启动
 
-编辑 `src/config.js`，填入你的服务地址与 publishable key：
+复制配置模板并填入你的服务地址与 publishable key（`config.js` 已被 `.gitignore` 忽略，真实配置不会进入仓库）：
+
+```bash
+cp src/config.example.js src/config.js
+cp login-website/config.example.js login-website/config.js
+```
 
 ```js
 window.APP_CONFIG = {
@@ -130,7 +135,7 @@ node tests/week.test.mjs
 index.html                 入口（hash 路由 + 资源版本串）
 app.css                    全部样式（移动优先，手写，hm-*/adm-* 命名空间）
 src/
-  config.js                云服务 publicConfig
+  config.example.js        云服务配置模板（复制为 config.js，不入库）
   store.js                 全局状态 / 路由解析 / rpc 封装（带登录凭证）
   app.js                   组件注册 / 底部导航显隐
   lib/
