@@ -321,5 +321,5 @@
     return { name, count: list.length }
   }
 
-  window.XLS = { exportLedger, exportClassStats, loadXLSX }
+  window.XLS = { exportLedger, exportClassStats, loadXLSX, gradeOfCode, gradesOf }
 })()

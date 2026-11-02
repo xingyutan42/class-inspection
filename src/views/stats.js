@@ -1,5 +1,35 @@
-// 班级查课次数：成员看自己，管理员看全部成员并可导出 Excel（支持按周区间）
+// 班级查课次数：成员看自己，管理员看全部成员（支持按周区间、排序与各班展开）
 window.Views = window.Views || {}
+
+// 测试账号（学号 TEST 开头或姓名以「测试」开头）不计入次数统计，只在成员管理中可见
+function isTestMember(m) {
+  if (!m) return false
+  return /^TEST/i.test(String(m.student_no || '')) || /^测试/.test(String(m.name || ''))
+}
+
+// 由班级号推算年级：取第 5-6 位两位年份（如 13002401 → 24 级）
+// 学年从 9 月算起：2026-27 学年时 26 级=大一、25 级=大二、24 级=大三
+function classGrade(code) {
+  const yy = Number(String(code || '').slice(4, 6))
+  if (!yy) return 0
+  const now = new Date()
+  const acadStart = now.getMonth() >= 8 ? now.getFullYear() : now.getFullYear() - 1
+  const g = acadStart - (2000 + yy) + 1
+  return g >= 1 && g <= 3 ? g : 0
+}
+
+// 同一成员多班级取主要年级（出现次数最多的年级）
+function memberGradeOf(m) {
+  const tally = {}
+  ;(m.classes || []).forEach((c) => {
+    const g = classGrade(c.code)
+    if (g) tally[g] = (tally[g] || 0) + 1
+  })
+  const keys = Object.keys(tally).map(Number)
+  if (!keys.length) return 0
+  keys.sort((a, b) => tally[b] - tally[a] || a - b)
+  return keys[0]
+}
 
 window.Views.ClassStatsView = {
   template: `
@@ -82,18 +112,48 @@ window.Views.ClassStatsView = {
         <div class="empty" v-if="!members.length">还没有可统计的成员</div>
       </div>
 
-      <button class="btn btn-primary btn-block btn-lg mt12" v-if="isAdmin" :disabled="exporting || !members.length" @click="doExport">
-        {{ exporting ? '正在生成…' : '导出 Excel（' + weekLabel + '）' }}
-      </button>
+      <div class="mt8" v-if="isAdmin">
+        <div class="seg mt12" style="flex-wrap:wrap">
+          <span class="seg-i" :class="{ on: sortKey === 'total_desc' }" @click="sortKey = 'total_desc'">次数从多到少</span>
+          <span class="seg-i" :class="{ on: sortKey === 'total_asc' }" @click="sortKey = 'total_asc'">次数从少到多</span>
+          <span class="seg-i" :class="{ on: sortKey === 'name' }" @click="sortKey = 'name'">按姓名</span>
+          <span class="seg-i" :class="{ on: sortKey === 'grade' }" @click="sortKey = 'grade'">按年级</span>
+        </div>
+        <div class="mem-card" v-for="m in sortedMembers" :key="'a' + m.id">
+          <div class="mem-top" style="cursor:pointer" @click="toggleExpand(m.id)">
+            <div class="mem-name">
+              {{ m.name }}
+              <span class="badge badge-pri" v-if="memberGrade(m)">{{ memberGrade(m) === 1 ? '大一' : (memberGrade(m) === 2 ? '大二' : '大三') }}</span>
+            </div>
+            <span class="mem-no">{{ m.student_no }}</span>
+          </div>
+          <div class="row between tiny muted mt8" style="cursor:pointer;flex-wrap:wrap;gap:4px 10px" @click="toggleExpand(m.id)">
+            <span>负责班级 {{ m.classes.length }}</span>
+            <span>已覆盖 {{ m.covered }} / {{ m.classes.length }}</span>
+            <span>记录 {{ m.records }} 条</span>
+            <span>合计 <b>{{ m.total }}</b> 次</span>
+          </div>
+          <div class="cls-stat" v-if="expanded[m.id] && m.classes.length">
+            <div class="cls-stat-item" v-for="c in m.classes" :key="c.code" :class="{ zero: !c.count }">
+              <div class="cls-stat-code"><span v-if="c.grade" class="cls-stat-grade">{{ c.grade }}</span>{{ c.code }}</div>
+              <div class="cls-stat-n">{{ c.count }}<span>次</span></div>
+              <div class="cls-stat-d">{{ c.last_date ? '最近 ' + U.md(c.last_date) : '还没查过' }}</div>
+            </div>
+          </div>
+          <div class="muted sm mt8" v-if="expanded[m.id] && !m.classes.length">未分配负责班级</div>
+          <div class="tiny muted mt8" v-if="m.classes.length">{{ expanded[m.id] ? '点击收起各班次数' : '点击展开各班次数' }}</div>
+        </div>
+        <div class="empty" v-if="!members.length">还没有可统计的成员</div>
+      </div>
     </template>
   </div>`,
 
   data() {
-    return { U, loading: true, err: '', data: null, exporting: false, selFrom: 1, selTo: 1, legacy: false }
+    return { U, loading: true, err: '', data: null, sortKey: 'total_desc', expanded: {}, selFrom: 1, selTo: 1, legacy: false }
   },
   computed: {
     isAdmin() { return !!(this.data && this.data.is_admin) },
-    members() { return (this.data && this.data.members) || [] },
+    members() { return ((this.data && this.data.members) || []).filter((m) => !isTestMember(m)) },
     semName() {
       return (this.data && this.data.semester && this.data.semester.name) || '未设置学期'
     },
@@ -114,12 +174,20 @@ window.Views.ClassStatsView = {
     coveredClasses() { return this.data ? Number(this.data.covered_classes) || 0 : 0 },
     totalCount() { return this.members.reduce((s, m) => s + (Number(m.total) || 0), 0) },
     totalRecords() { return this.members.reduce((s, m) => s + (Number(m.records) || 0), 0) },
+    sortedMembers() {
+      const list = this.members.slice()
+      const k = this.sortKey
+      if (k === 'name') list.sort((a, b) => U.nameCompare(a.name, b.name))
+      else if (k === 'grade') list.sort((a, b) => (memberGradeOf(a) || 9) - (memberGradeOf(b) || 9) || U.nameCompare(a.name, b.name))
+      else if (k === 'total_asc') list.sort((a, b) => (Number(a.total) || 0) - (Number(b.total) || 0) || U.nameCompare(a.name, b.name))
+      else list.sort((a, b) => (Number(b.total) || 0) - (Number(a.total) || 0) || U.nameCompare(a.name, b.name))
+      return list
+    },
   },
   mounted() {
     this.selFrom = 1
     this.selTo = Math.max(1, Math.min(Store.weekMax(), Store.weekNow() || 1))
     this.load()
-    if (Store.store.isAdmin) XLS.loadXLSX().catch(() => {})
   },
   methods: {
     back() {
@@ -210,21 +278,11 @@ window.Views.ClassStatsView = {
       this.selTo = Store.store.semester ? Store.store.semester.total_weeks : 18
       this.load()
     },
-    async doExport() {
-      if (!this.members.length) return
-      this.exporting = true
-      try {
-        const out = await XLS.exportClassStats({
-          members: this.members,
-          semester: this.semName,
-          weekLabel: this.weekLabel,
-        })
-        U.toast('已生成：' + out.name)
-      } catch (e) {
-        this.err = U.errText(e)
-      } finally {
-        this.exporting = false
-      }
+    toggleExpand(id) {
+      this.expanded[id] = !this.expanded[id]
+    },
+    memberGrade(m) {
+      return memberGradeOf(m)
     },
   },
 }

@@ -1,4 +1,4 @@
--- 学风查课 · 完整建库脚本（自建账号版，v2）
+﻿-- 学风查课 · 完整建库脚本（自建账号版，v2）
 -- 适用于 PostgreSQL 14+。逐条执行，或整段在 SQL 编辑器里运行。
 -- 依赖 pgcrypto（crypt / gen_salt / digest / gen_random_bytes）。
 --
@@ -102,7 +102,6 @@ CREATE TABLE check_records (
   expected_count INTEGER CHECK (expected_count IS NULL OR expected_count >= 0),
   actual_count   INTEGER CHECK (actual_count IS NULL OR actual_count >= 0),
   late_count     INTEGER NOT NULL DEFAULT 0 CHECK (late_count >= 0),
-  early_count    INTEGER NOT NULL DEFAULT 0 CHECK (early_count >= 0),
   absent_count   INTEGER NOT NULL DEFAULT 0 CHECK (absent_count >= 0),
   leave_count    INTEGER NOT NULL DEFAULT 0 CHECK (leave_count >= 0),
   discipline_tags TEXT[] NOT NULL DEFAULT '{}',
@@ -412,7 +411,7 @@ BEGIN
   END IF;
   INSERT INTO check_records(plan_id, owner_id, owner_name, semester_id, week_no, check_date,
       period_from, period_to, course_name, class_name, teacher, room, counselor, is_extra,
-      expected_count, actual_count, late_count, early_count, absent_count, leave_count,
+      expected_count, actual_count, late_count, absent_count, leave_count,
       absent_students, leave_students,
       discipline_tags, discipline_note, remark, client_uuid)
   VALUES (v_plan, u.id, u.name, v_sem, 1,
@@ -423,7 +422,7 @@ BEGIN
       nullif(btrim(coalesce(p_payload->>'counselor','')),''),
       coalesce((p_payload->>'is_extra')::boolean, false),
       coalesce((p_payload->>'expected_count')::int,0), coalesce((p_payload->>'actual_count')::int,0),
-      coalesce((p_payload->>'late_count')::int,0), coalesce((p_payload->>'early_count')::int,0),
+      coalesce((p_payload->>'late_count')::int,0),
       coalesce((p_payload->>'absent_count')::int,0), coalesce((p_payload->>'leave_count')::int,0),
       coalesce(p_payload->'absent_students','[]'::jsonb),
       coalesce(p_payload->'leave_students','[]'::jsonb),
@@ -451,7 +450,6 @@ BEGIN
       expected_count = coalesce((p_payload->>'expected_count')::int, expected_count),
       actual_count = coalesce((p_payload->>'actual_count')::int, actual_count),
       late_count = coalesce((p_payload->>'late_count')::int, late_count),
-      early_count = coalesce((p_payload->>'early_count')::int, early_count),
       absent_count = coalesce((p_payload->>'absent_count')::int, absent_count),
       leave_count = coalesce((p_payload->>'leave_count')::int, leave_count),
       absent_students = coalesce(p_payload->'absent_students', absent_students),
@@ -601,7 +599,6 @@ BEGIN
       expected_count = coalesce((p_payload->>'expected_count')::int, expected_count),
       actual_count = coalesce((p_payload->>'actual_count')::int, actual_count),
       late_count = coalesce((p_payload->>'late_count')::int, late_count),
-      early_count = coalesce((p_payload->>'early_count')::int, early_count),
       absent_count = coalesce((p_payload->>'absent_count')::int, absent_count),
       leave_count = coalesce((p_payload->>'leave_count')::int, leave_count),
       remark = nullif(btrim(coalesce(p_payload->>'remark','')),''),
@@ -986,7 +983,7 @@ BEGIN
   END IF;
   INSERT INTO check_records(plan_id, owner_id, owner_name, semester_id, week_no, check_date,
       period_from, period_to, course_name, class_name, teacher, room, counselor, classes, other_expected, is_extra,
-      expected_count, actual_count, late_count, early_count, absent_count, leave_count,
+      expected_count, actual_count, late_count, absent_count, leave_count,
       absent_students, leave_students,
       discipline_tags, discipline_note, remark, client_uuid)
   VALUES (v_plan, u.id, u.name, v_sem, 1,
@@ -998,7 +995,7 @@ BEGIN
       v_classes, v_other,
       coalesce((p_payload->>'is_extra')::boolean, false),
       coalesce((p_payload->>'expected_count')::int,0), coalesce((p_payload->>'actual_count')::int,0),
-      coalesce((p_payload->>'late_count')::int,0), coalesce((p_payload->>'early_count')::int,0),
+      coalesce((p_payload->>'late_count')::int,0),
       coalesce((p_payload->>'absent_count')::int,0), coalesce((p_payload->>'leave_count')::int,0),
       coalesce(p_payload->'absent_students','[]'::jsonb),
       coalesce(p_payload->'leave_students','[]'::jsonb),
@@ -1179,7 +1176,7 @@ BEGIN
 
   INSERT INTO check_records(plan_id, owner_id, owner_name, semester_id, week_no, check_date,
       period_from, period_to, course_name, class_name, teacher, room, counselor, classes, other_expected, other_actual, is_extra,
-      expected_count, actual_count, late_count, early_count, absent_count, leave_count,
+      expected_count, actual_count, late_count, absent_count, leave_count,
       absent_students, leave_students,
       discipline_tags, discipline_note, remark, client_uuid)
   VALUES (v_plan, u.id, u.name, v_sem, 1,
@@ -1191,7 +1188,7 @@ BEGIN
       v_classes, v_other, v_other_act,
       coalesce((p_payload->>'is_extra')::boolean, false),
       v_sum_exp, v_sum_act,
-      coalesce((p_payload->>'late_count')::int,0), coalesce((p_payload->>'early_count')::int,0),
+      coalesce((p_payload->>'late_count')::int,0),
       coalesce((p_payload->>'absent_count')::int,0), coalesce((p_payload->>'leave_count')::int,0),
       coalesce(p_payload->'absent_students','[]'::jsonb),
       coalesce(p_payload->'leave_students','[]'::jsonb),
@@ -1250,7 +1247,6 @@ BEGIN
       expected_count = CASE WHEN v_has_cls THEN v_sum_exp ELSE coalesce((p_payload->>'expected_count')::int, expected_count) END,
       actual_count = CASE WHEN v_has_cls THEN v_sum_act ELSE coalesce((p_payload->>'actual_count')::int, actual_count) END,
       late_count = coalesce((p_payload->>'late_count')::int, late_count),
-      early_count = coalesce((p_payload->>'early_count')::int, early_count),
       absent_count = coalesce((p_payload->>'absent_count')::int, absent_count),
       leave_count = coalesce((p_payload->>'leave_count')::int, leave_count),
       absent_students = coalesce(p_payload->'absent_students', absent_students),
@@ -1296,7 +1292,6 @@ BEGIN
       expected_count = CASE WHEN v_has THEN (SELECT sum((e->>'expected')::int) FROM jsonb_array_elements(v_norm) e) + v_other ELSE coalesce((p_payload->>'expected_count')::int, expected_count) END,
       actual_count = CASE WHEN v_has THEN (SELECT sum((e->>'actual')::int) FROM jsonb_array_elements(v_norm) e) + v_oa ELSE coalesce((p_payload->>'actual_count')::int, actual_count) END,
       late_count = coalesce((p_payload->>'late_count')::int, late_count),
-      early_count = coalesce((p_payload->>'early_count')::int, early_count),
       absent_count = coalesce((p_payload->>'absent_count')::int, absent_count),
       leave_count = coalesce((p_payload->>'leave_count')::int, leave_count),
       remark = nullif(btrim(coalesce(p_payload->>'remark','')),''),
@@ -1418,7 +1413,7 @@ BEGIN
   END IF;
   INSERT INTO check_records(plan_id, owner_id, owner_name, semester_id, week_no, check_date,
       period_from, period_to, course_name, class_name, teacher, room, counselor, classes, other_expected, other_actual, arrive_before, is_extra,
-      expected_count, actual_count, late_count, early_count, absent_count, leave_count,
+      expected_count, actual_count, late_count, absent_count, leave_count,
       absent_students, leave_students, discipline_tags, discipline_note, remark, client_uuid)
   VALUES (v_plan, u.id, u.name, v_sem, 1,
       (p_payload->>'check_date')::date,
@@ -1430,7 +1425,7 @@ BEGIN
       coalesce((p_payload->>'is_extra')::boolean, false),
       CASE WHEN (p_payload ? 'classes') AND v_plan IS NOT NULL THEN coalesce((SELECT sum((e->>'expected')::int) FROM jsonb_array_elements(v_norm) e),0) + v_other ELSE v_oe END,
       CASE WHEN (p_payload ? 'classes') AND v_plan IS NOT NULL THEN coalesce((SELECT sum((e->>'actual')::int) FROM jsonb_array_elements(v_norm) e),0) + v_other_act ELSE v_oa END,
-      coalesce((p_payload->>'late_count')::int,0), coalesce((p_payload->>'early_count')::int,0),
+      coalesce((p_payload->>'late_count')::int,0),
       coalesce((p_payload->>'absent_count')::int,0), coalesce((p_payload->>'leave_count')::int,0),
       coalesce(p_payload->'absent_students','[]'::jsonb),
       coalesce(p_payload->'leave_students','[]'::jsonb),
@@ -1633,7 +1628,6 @@ BEGIN
       expected_count = CASE WHEN v_has THEN (SELECT sum((e->>'expected')::int) FROM jsonb_array_elements(v_norm) e) + v_other ELSE coalesce((p_payload->>'expected_count')::int, expected_count) END,
       actual_count = CASE WHEN v_has THEN (SELECT sum((e->>'actual')::int) FROM jsonb_array_elements(v_norm) e) + v_oa ELSE coalesce((p_payload->>'actual_count')::int, actual_count) END,
       late_count = coalesce((p_payload->>'late_count')::int, late_count),
-      early_count = coalesce((p_payload->>'early_count')::int, early_count),
       absent_count = coalesce((p_payload->>'absent_count')::int, absent_count),
       leave_count = coalesce((p_payload->>'leave_count')::int, leave_count),
       remark = nullif(btrim(coalesce(p_payload->>'remark','')),''),

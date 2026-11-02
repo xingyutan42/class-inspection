@@ -78,11 +78,6 @@
     })
   }
 
-  // 提交忘记密码申请（无需登录态）
-  function forgot(name, studentNo) {
-    return rpc('app_forgot_password', { p_name: name, p_student_no: studentNo }, true)
-  }
-
   // 会话校验：返回 boot 数据（me / stats 等），失败时清 token 并抛错
   function boot() {
     return rpc('app_boot').catch(function (e) {
@@ -128,7 +123,7 @@
     login: login,
     logout: logout,
     boot: boot,
-    forgot: forgot,
+
     getToken: getToken,
     errText: errText,
   }

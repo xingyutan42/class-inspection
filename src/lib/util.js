@@ -167,10 +167,19 @@
     return msg || '操作失败，请重试'
   }
 
+  // 班级号排序：按第 7、8 位（班号尾数）升序，相同再按完整班级号
+  function classCompare(a, b) {
+    const sa = String(a || ''), sb = String(b || '')
+    const ka = Number(sa.slice(6, 8)) || 0
+    const kb = Number(sb.slice(6, 8)) || 0
+    if (ka !== kb) return ka - kb
+    return sa.localeCompare(sb)
+  }
+
   window.U = {
     TZ, PERIODS, TODAYS: WD,
     today, parse, iso, addDays, diffDays, weekdayCN, isWeekend,
     mondayOf, weekNo, weekStartOf, md, periodText, arriveText, matchCounselors, recordClassHints, rate, pctNum,
-    tagsText, shortTime, nameCompare, dayTime, toast, errText,
+    tagsText, shortTime, nameCompare, classCompare, dayTime, toast, errText,
   }
 })()

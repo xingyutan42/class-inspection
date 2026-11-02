@@ -10,17 +10,15 @@ function blobToDataUrl(blob) {
   })
 }
 
-// 老记录只有总实到、没有逐班实到：按应到占比拆到各班，保证合计不变
-function spreadActual(list, total) {
-  const sum = list.reduce((s, c) => s + c.expected, 0)
-  if (!sum) return list.map((c) => ({ ...c, actual: 0 }))
-  let used = 0
-  return list.map((c, i) => {
-    let a = i === list.length - 1 ? total - used : Math.round((total * c.expected) / sum)
-    a = Math.max(0, Math.min(c.expected, a))
-    used += a
-    return { ...c, actual: a }
-  })
+// 本机缓存里可能混有其他账号的记录，成员只能看到自己的
+function mineOnly(list) {
+  const me = Store.store.me || {}
+  return (list || []).filter((r) => r && String(r.owner_id) === String(me.id))
+}
+
+// 本机保存的照片 id（提交成功时记录），成员查看时只读本地，不走云端
+function localPhotoIds(recId) {
+  try { return JSON.parse(localStorage.getItem('xfc_photo_ids_' + recId) || '[]') || [] } catch (e) { return [] }
 }
 
 window.Views.ConfNum = {
@@ -92,13 +90,13 @@ window.Views.FillView = {
   <div class="shell">
     <div class="topbar">
       <div class="side"><button class="iconbtn back" @click="back">‹</button></div>
-      <h1>{{ isEdit ? '申请修改查课结果' : '填写查课结果' }}</h1>
+      <h1>填写查课结果</h1>
       <div class="side right"></div>
     </div>
 
     <div class="mask mask-center" v-if="err" @click.self="err = ''">
       <div class="sheet sheet-center">
-        <h3>{{ isEdit ? '保存失败' : '提交失败' }}</h3>
+        <h3>提交失败</h3>
         <div class="sub errmsg">{{ err }}</div>
         <button class="btn btn-primary btn-block" @click="err = ''">知道了</button>
       </div>
@@ -113,13 +111,18 @@ window.Views.FillView = {
           <button type="button" class="photo-x" @click="removePhoto(i)">✕</button>
         </div>
         <label class="photo-add" v-if="photos.length < 2">
-          <input type="file" accept="image/*" capture="environment" @change="onPick" hidden>
+          <input type="file" accept="image/*" @change="onPick" hidden>
           <span class="photo-add-ic">＋</span>
-          <span class="photo-add-t">拍照 / 选择</span>
+          <span class="photo-add-t">拍照 / 从相册选择</span>
         </label>
       </div>
       <div class="tiny mt8" style="color:var(--bad)">课检员考勤需要，至少上传 1 张现场照片后才能提交。</div>
       <div class="tiny muted mt8">最多 2 张，自动压缩到 500KB 以内。建议拍教室全景或黑板，避免人脸特写。</div>
+    </div>
+
+    <div class="card mt12" v-if="plan && plan.note" style="background:var(--bad-soft);border:1px solid rgba(217,45,32,.35)">
+      <div class="strong" style="color:var(--bad)">这节课程被打回，请修改后重新提交</div>
+      <div class="sm mt8">打回原因：{{ plan.note }}</div>
     </div>
 
     <!-- ===== 课程信息 + 出勤情况（合并：出勤紧跟课检班级实到） ===== -->
@@ -163,39 +166,16 @@ window.Views.FillView = {
       </template>
 
       <template v-else>
-      <div class="center" style="margin-bottom:12px">
-        <button type="button" class="btn btn-sm" @click="courseEdit = !courseEdit">
-          {{ courseEdit ? '完成更改' : '更改课程信息' }}
-        </button>
-      </div>
       <div class="hd">
         <h2>课程信息</h2>
-        <span class="badge" :class="isEdit ? 'badge-warn' : 'badge-pri'">{{ isEdit ? '修改中' : '计划内' }}</span>
+        <span class="badge badge-pri">计划内</span>
       </div>
 
-      <template v-if="courseEdit">
-        <div class="kvrow"><span class="k">课程名称</span><span class="v strong">{{ form.course_name }}</span></div>
-        <div class="kvrow"><span class="k">任课老师</span><span class="v">{{ form.teacher || '—' }}</span></div>
-        <div class="kvrow"><span class="k">教室</span><span class="v strong">{{ form.room || '—' }}</span></div>
-        <div class="kvrow"><span class="k">课检时间</span><span class="v">{{ weekText }} {{ U.periodText(form.period_from, form.period_to) }}</span></div>
-        <div class="tiny muted mt8">课程名称、任课老师、教室、课检时间与计划一致，不可更改；确实有误请联系管理员修正。</div>
-        <div class="field mt12">
-          <label class="label">预计到岗时间</label>
-          <div class="chips mt8">
-            <div class="chip" :class="{on: form.arrive_before === 'p1'}" @click="form.arrive_before = 'p1'">第一节课前</div>
-            <div class="chip" :class="{on: form.arrive_before === 'p2'}" @click="form.arrive_before = 'p2'">第二节课前</div>
-          </div>
-          <div class="hint">与选课时一致，二选一</div>
-        </div>
-        <div class="tiny muted">应到人数在下方「课检班级」里逐班修改（其他类同）。</div>
-      </template>
-      <template v-else>
-        <div class="kvrow"><span class="k">课程名称</span><span class="v strong">{{ form.course_name }}</span></div>
-        <div class="kvrow"><span class="k">任课老师</span><span class="v">{{ form.teacher || '—' }}</span></div>
-        <div class="kvrow"><span class="k">教室</span><span class="v strong">{{ form.room || '—' }}</span></div>
-        <div class="kvrow"><span class="k">课检时间</span><span class="v">{{ weekText }} {{ U.periodText(form.period_from, form.period_to) }}</span></div>
-        <div class="kvrow" v-if="form.arrive_before"><span class="k">预计到岗</span><span class="v">{{ U.arriveText(form.arrive_before) }}</span></div>
-      </template>
+      <div class="kvrow"><span class="k">课程名称</span><span class="v strong">{{ form.course_name }}</span></div>
+      <div class="kvrow"><span class="k">任课老师</span><span class="v">{{ form.teacher || '—' }}</span></div>
+      <div class="kvrow"><span class="k">教室</span><span class="v strong">{{ form.room || '—' }}</span></div>
+      <div class="kvrow"><span class="k">课检时间</span><span class="v">{{ weekText }} {{ U.periodText(form.period_from, form.period_to) }}</span></div>
+      <div class="kvrow" v-if="form.arrive_before"><span class="k">预计到岗</span><span class="v">{{ U.arriveText(form.arrive_before) }}</span></div>
 
       <div class="kvrow" v-if="!form.classes.length"><span class="k">课检班级</span><span class="v">{{ form.class_name }}</span></div>
 
@@ -206,10 +186,7 @@ window.Views.FillView = {
         </div>
         <div class="cstat" v-for="(c, i) in form.classes" :key="c.code + i">
           <div class="cstat-code">{{ c.code }}</div>
-          <div class="cstat-exp">
-            <template v-if="courseEdit">应到 <input class="val num" style="width:48px;text-align:center" type="number" min="0" v-model.number="c.expected" @blur="clampExpected(i)"></template>
-            <template v-else>应到 {{ c.expected }}</template>
-          </div>
+          <div class="cstat-exp">应到 {{ c.expected }}</div>
           <div class="stepper mini">
             <button type="button" @click="bumpActual(i, -1)">−</button>
             <input class="val num" type="number" inputmode="numeric" v-model.number="c.actual" @blur="clampActual(i)">
@@ -218,10 +195,7 @@ window.Views.FillView = {
         </div>
         <div class="cstat" v-if="otherExpected > 0">
           <div class="cstat-code">其他</div>
-          <div class="cstat-exp">
-            <template v-if="courseEdit">应到 <input class="val num" style="width:48px;text-align:center" type="number" min="0" v-model.number="form.other_expected" @blur="clampOtherExpected"></template>
-            <template v-else>应到 {{ otherExpected }}</template>
-          </div>
+          <div class="cstat-exp">应到 {{ otherExpected }}</div>
           <div class="stepper mini">
             <button type="button" @click="bumpOther(-1)">−</button>
             <input class="val num" type="number" inputmode="numeric" v-model.number="form.other_actual" @blur="clampOther">
@@ -351,10 +325,6 @@ window.Views.FillView = {
         <label class="label">检查备注</label>
         <textarea class="textarea textarea-xs" v-model="form.remark" maxlength="200" placeholder="如：教师临时更换"></textarea>
       </div>
-      <div class="field mt12 mb0" v-if="isEdit">
-        <label class="label">申请原因<i class="req">*</i></label>
-        <input class="input" v-model="form.correction_note" maxlength="60" placeholder="例如：实到人数点错了（审核通过后生效）">
-      </div>
     </div>
 
     <div class="mask mask-center" v-if="confirmShow">
@@ -371,7 +341,7 @@ window.Views.FillView = {
       <div class="center tiny" v-else-if="!allConfirmed" style="color:var(--bad);margin-bottom:6px">还有未点「确定」的项目（课堂纪律 6 项 + 评分 2 项）</div>
       <div class="inner">
         <button class="btn btn-primary btn-block btn-lg" :disabled="busy || !canSubmit" @click="submit">
-          {{ busy ? '提交中…' : (isEdit ? '提交修改申请' : '提交查课结果') }}
+          {{ busy ? '提交中…' : '提交查课结果' }}
         </button>
       </div>
     </div>
@@ -389,8 +359,8 @@ window.Views.FillView = {
         '老师讲课认真，条理清晰，关注学生状态，积极与学生互动。',
         '老师上课重点突出，大部分学生上课积极融入课堂。',
       ],
-      isEdit: false, isExtra: false, busy: false, err: '', photos: [],
-      plan: null, recordId: '', courseEdit: false,
+      isExtra: false, busy: false, err: '', photos: [],
+      plan: null,
       confirmed: { phone_count: false, sleep_count: false, phone_10: false, sleep_10: false, phone_30: false, sleep_30: false, teacher_score: false, student_score: false },
       form: {
         check_date: '', period_from: 1, period_to: 2, arrive_before: '',
@@ -401,7 +371,7 @@ window.Views.FillView = {
         teacher_score: 9.5, student_score: 9.5,
         phone_10: 0, sleep_10: 0, phone_30: 0, sleep_30: 0,
         absent_students: [], leave_students: [],
-        discipline_tags: [], course_content: '', remark: '', correction_note: '',
+        discipline_tags: [], course_content: '', remark: '',
       },
       confirmShow: false,
     }
@@ -457,7 +427,6 @@ window.Views.FillView = {
       // 课堂纪律 6 项 + 评分 2 项，共 8 个「确定」都按下才能提交
       const need = ['phone_count', 'sleep_count', 'phone_10', 'sleep_10', 'phone_30', 'sleep_30', 'teacher_score', 'student_score']
       if (need.some((k) => !this.confirmed[k])) return false
-      if (this.isEdit && !this.form.correction_note.trim()) return false
       return true
     },
   },
@@ -467,8 +436,7 @@ window.Views.FillView = {
   },
   mounted() {
     const p = this.$root.route.params
-    if (p.recordId) { this.isEdit = true; this.recordId = p.recordId; this.loadRecord() }
-    else if (p.planId) this.loadPlan(p.planId)
+    if (p.planId) this.loadPlan(p.planId)
     else { this.isExtra = true; this.form.check_date = U.today() }
   },
   methods: {
@@ -506,7 +474,7 @@ window.Views.FillView = {
         this.plan = row
         this.fillFrom(row)
         const cls = Array.isArray(row.classes) ? row.classes : []
-        this.form.classes = cls.map((c) => {
+        this.form.classes = cls.slice().sort((a, b) => U.classCompare(a.code, b.code)).map((c) => {
           const exp = Number(c.expected) || 0
           return { code: c.code || '', expected: exp, actual: exp }
         })
@@ -516,49 +484,74 @@ window.Views.FillView = {
         if (sum > 0) this.form.expected_count = sum
       } catch (e) { U.toast(U.errText(e), 'bad'); Store.nav('/') }
     },
-    async loadRecord() {
-      try {
-        const d = await Store.rpc('record_get', { p_id: Number(this.recordId) })
-        const row = d.record
-        this.plan = row
-        this.isExtra = !!row.is_extra
-        this.fillFrom(row)
-        this.loadPhotos()
-        const raw = Array.isArray(row.classes) ? row.classes : []
-        const base = raw.map((c) => ({ code: c.code || '', expected: Number(c.expected) || 0 }))
-        const legacy = raw.some((c) => c.actual === null || c.actual === undefined)
-        if (legacy) {
-          this.form.classes = spreadActual(base, Number(row.actual_count) || 0)
-        } else {
-          this.form.classes = base.map((c, i) => {
-            const act = Number(raw[i].actual) || 0
-            return { ...c, actual: Math.min(c.expected, Math.max(0, act)) }
+    async onPick(e) {
+      const files = Array.from(e.target.files || [])
+      e.target.value = ''
+      for (const f of files) {
+        if (this.photos.length >= 2) { U.toast('最多 2 张照片', 'bad'); break }
+        const name = String(f.name || '').toLowerCase()
+        if (f.type && f.type.indexOf('image/') !== 0 && !/\.(heic|heif|jpg|jpeg|png|webp|gif)$/.test(name)) continue
+        try {
+          const out = await IMG.compress(f, { maxKB: 500, maxEdge: 1800 })
+          const dataUrl = await blobToDataUrl(out.blob)
+          const th = await IMG.compress(f, { maxKB: 25, maxEdge: 320 })
+          const thumbDataUrl = await blobToDataUrl(th.blob)
+          this.photos.push({
+            key: 'n' + Date.now() + Math.random(), preview: out.preview,
+            dataUrl: dataUrl, thumbDataUrl: thumbDataUrl, kb: out.kb, saved: false,
+            takenAt: f.lastModified ? new Date(f.lastModified).toISOString() : '',
           })
+        } catch (err) {
+          const heic = f.type === 'image/heic' || f.type === 'image/heif' || /\.(heic|heif)$/.test(name)
+          U.toast(heic ? '这张是 HEIC 格式，浏览器无法读取，请用截图或转成 JPG 后再上传' : (err.message || '照片处理失败'), 'bad')
         }
-        this.form.other_expected = Number(row.other_expected) || 0
-        if (legacy) {
-          const used = this.form.classes.reduce((s, c) => s + c.actual, 0)
-          this.form.other_actual = Math.min(this.form.other_expected,
-            Math.max(0, (Number(row.actual_count) || 0) - used))
-        } else {
-          this.form.other_actual = Number(row.other_actual) || 0
-        }
-        this.form.expected_count = row.expected_count || 0
-        this.form.absent_count = row.absent_count || 0
-        this.form.leave_count = row.leave_count || 0
-        this.form.phone_count = row.phone_count || 0
-        this.form.sleep_count = row.sleep_count || 0
-        this.form.teacher_status = row.teacher_status || ''
-        this.form.phone_10 = row.phone_10 || 0
-        this.form.sleep_10 = row.sleep_10 || 0
-        this.form.phone_30 = row.phone_30 || 0
-        this.form.sleep_30 = row.sleep_30 || 0
-        this.form.absent_students = Array.isArray(row.absent_students) ? row.absent_students.map((x) => ({ cls: x.cls || '', name: x.name || '' })) : []
-        this.form.leave_students = Array.isArray(row.leave_students) ? row.leave_students.map((x) => ({ cls: x.cls || '', name: x.name || '' })) : []
-        this.form.discipline_tags = Array.isArray(row.discipline_tags) ? row.discipline_tags.slice() : []
-        this.form.course_content = row.discipline_note || ''
-        this.form.remark = row.remark || ''
-      } catch (e) { U.toast(U.errText(e), 'bad'); Store.nav('/') }
+      }
+    },
+    async removePhoto(i) {
+      const ph = this.photos[i]
+      if (!ph) return
+      if (ph.saved && ph.id) {
+        try { await Store.rpc('photo_delete', { p_id: ph.id }) }
+        catch (e) { U.toast(U.errText(e), 'bad'); return }
+      }
+      this.photos.splice(i, 1)
+    },
+    syncStudents(kind, n) {
+      const key = kind === 'absent' ? 'absent_students' : 'leave_students'
+      const arr = this.form[key]
+      const target = Math.max(0, Math.min(Number(n) || 0, 100))
+      while (arr.length < target) arr.push({ cls: '', name: '' })
+      while (arr.length > target) arr.pop()
+    },
+    bumpActual(i, d) {
+      const c = this.form.classes[i]
+      if (!c) return
+      c.actual = Math.min(Number(c.expected) || 0, Math.max(0, (Number(c.actual) || 0) + d))
+    },
+    clampActual(i) {
+      const c = this.form.classes[i]
+      if (!c) return
+      c.actual = Math.min(Number(c.expected) || 0, Math.max(0, Math.floor(Number(c.actual) || 0)))
+    },
+    bumpOther(d) {
+      this.form.other_actual = Math.min(this.otherExpected, Math.max(0, (Number(this.form.other_actual) || 0) + d))
+    },
+    clampOther() {
+      this.form.other_actual = Math.min(this.otherExpected, Math.max(0, Math.floor(Number(this.form.other_actual) || 0)))
+    },
+    bumpScore(key, d) {
+      const v = Math.round(((Number(this.form[key]) || 9.5) + d) * 10) / 10
+      this.form[key] = Math.min(10, Math.max(9, v))
+      this.confirmed[key] = false
+    },
+    clampScore(key) {
+      let v = Number(this.form[key])
+      if (!Number.isFinite(v)) v = 9.5
+      this.form[key] = Math.min(10, Math.max(9, Math.round(v * 10) / 10))
+    },
+    confirmScore(key) {
+      this.clampScore(key)
+      this.confirmed[key] = true
     },
     payload() {
       const body = {
@@ -601,36 +594,12 @@ window.Views.FillView = {
       }
       return body
     },
-    syncStudents(kind, n) {
-      const key = kind === 'absent' ? 'absent_students' : 'leave_students'
-      const arr = this.form[key]
-      const target = Math.max(0, Math.min(Number(n) || 0, 100))
-      while (arr.length < target) arr.push({ cls: '', name: '' })
-      while (arr.length > target) arr.pop()
-    },
-    bumpActual(i, d) {
-      const c = this.form.classes[i]
-      if (!c) return
-      c.actual = Math.min(c.expected, Math.max(0, (Number(c.actual) || 0) + d))
-    },
-    clampActual(i) {
-      const c = this.form.classes[i]
-      if (!c) return
-      c.actual = Math.min(c.expected, Math.max(0, Math.floor(Number(c.actual) || 0)))
-    },
-    bumpOther(d) {
-      this.form.other_actual = Math.min(this.otherExpected, Math.max(0, (Number(this.form.other_actual) || 0) + d))
-    },
-    clampOther() {
-      this.form.other_actual = Math.min(this.otherExpected, Math.max(0, Math.floor(Number(this.form.other_actual) || 0)))
-    },
     submit() {
       this.err = ''
       if (!Store.store.semester) { this.err = '尚未设置学期，请联系管理员'; return }
       this.form.classes.forEach((c, i) => this.clampActual(i))
       this.clampOther()
       if (!this.canSubmit) return
-      if (this.isEdit) { this.doSubmit(); return }
       this.confirmShow = true
     },
     async doSubmit() {
@@ -638,103 +607,19 @@ window.Views.FillView = {
       this.busy = true
       try {
         const body = this.payload()
-        let recId = Number(this.recordId) || 0
-        let courseReq = false
-        if (this.isEdit) {
-          // 修改记录一律送管理员审核，通过后才生效
-          await Store.rpc('record_edit_request', {
-            p_record_id: recId,
-            p_payload: body,
-            p_reason: this.form.correction_note.trim(),
-            p_kind: 'record_edit',
-          })
-        } else {
-          // 填写结果时更改到岗/应到 → 先按计划原值保存，更改内容送审
-          const diff = this.plan ? this.courseDiff(body) : {}
-          if (this.plan && Object.keys(diff).length) {
-            body.arrive_before = String(this.plan.arrive_before || '')
-            body.other_expected = Number(this.plan.other_expected) || 0
-            body.classes = (body.classes || []).map((c) => {
-              const pc = (this.plan.classes || []).find((x) => x.code === c.code)
-              return {
-                code: c.code,
-                expected: pc ? (Number(pc.expected) || 0) : (Number(c.expected) || 0),
-                actual: Number(c.actual) || 0,
-              }
-            })
-            body.expected_count = body.classes.reduce((s, c) => s + (Number(c.expected) || 0), 0)
-              + (Number(body.other_expected) || 0)
-          }
-          body.plan_id = this.plan ? this.plan.id : null
-          body.is_extra = !this.plan
-          body.client_uuid = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : ''
-          const rec = await Store.rpc('record_submit', { p_payload: body })
-          recId = rec.id
-          if (this.plan && Object.keys(diff).length) {
-            await Store.rpc('record_edit_request', {
-              p_record_id: recId,
-              p_payload: diff,
-              p_reason: '填写结果时更改预计到岗/应到人数',
-              p_kind: 'course_info',
-            })
-            courseReq = true
-          }
-        }
-        const fail = await this.uploadPhotos(recId)
-        let done
-        if (this.isEdit) done = '修改申请已提交，管理员审核通过后生效'
-        else if (courseReq) done = '查课已提交；到岗/应到更改已送审，通过后生效'
-        else done = '查课成功'
-        if (fail) U.toast(done + '，但有 ' + fail + ' 张照片未上传', 'bad')
-        else U.toast(done)
-        Store.nav(this.isEdit ? '/record/' + recId : '/')
+        body.plan_id = this.plan ? this.plan.id : null
+        body.is_extra = !this.plan
+        body.client_uuid = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : ''
+        const rec = await Store.rpc('record_submit', { p_payload: body })
+        const fail = await this.uploadPhotos(rec.id)
+        if (fail) U.toast('查课成功，但有 ' + fail + ' 张照片未上传', 'bad')
+        else U.toast('查课成功')
+        Store.nav('/')
       } catch (e) {
         this.err = U.errText(e)
       } finally {
         this.busy = false
       }
-    },
-    courseDiff(body) {
-      const p = this.plan || {}
-      const d = {}
-      if (String(body.arrive_before || '') !== String(p.arrive_before || '')) d.arrive_before = String(body.arrive_before || '')
-      const planCls = Array.isArray(p.classes) ? p.classes : []
-      const bodyCls = Array.isArray(body.classes) ? body.classes : []
-      if (planCls.length && bodyCls.length) {
-        const changed = bodyCls.some((c) => {
-          const pc = planCls.find((x) => x.code === c.code)
-          return !pc || Number(pc.expected) !== Number(c.expected)
-        })
-        if (changed) {
-          d.classes = bodyCls.map((c) => ({ code: c.code, expected: Number(c.expected) || 0, actual: Number(c.actual) || 0 }))
-        }
-      }
-      if ((Number(body.other_expected) || 0) !== (Number(p.other_expected) || 0)) {
-        d.other_expected = Number(body.other_expected) || 0
-      }
-      return d
-    },
-    clampExpected(i) {
-      const c = this.form.classes[i]
-      if (!c) return
-      c.expected = Math.max(0, Math.floor(Number(c.expected) || 0))
-    },
-    clampOtherExpected() {
-      this.form.other_expected = Math.max(0, Math.floor(Number(this.form.other_expected) || 0))
-    },
-    bumpScore(key, d) {
-      const v = Math.round(((Number(this.form[key]) || 9.5) + d) * 10) / 10
-      this.form[key] = Math.min(10, Math.max(9, v))
-      this.confirmed[key] = false
-    },
-    clampScore(key) {
-      let v = Number(this.form[key])
-      if (!Number.isFinite(v)) v = 9.5
-      this.form[key] = Math.min(10, Math.max(9, Math.round(v * 10) / 10))
-    },
-    confirmScore(key) {
-      this.clampScore(key)
-      this.confirmed[key] = true
     },
     async uploadPhotos(recId) {
       let fail = 0
@@ -754,48 +639,6 @@ window.Views.FillView = {
         }
       }
       return fail
-    },
-    async onPick(e) {
-      const files = Array.from(e.target.files || [])
-      e.target.value = ''
-      for (const f of files) {
-        if (this.photos.length >= 3) { U.toast('最多 3 张照片', 'bad'); break }
-        if (!f.type || f.type.indexOf('image/') !== 0) continue
-        try {
-          const out = await IMG.compress(f, { maxKB: 500, maxEdge: 1800 })
-          const dataUrl = await blobToDataUrl(out.blob)
-          const th = await IMG.compress(f, { maxKB: 25, maxEdge: 320 })
-          const thumbDataUrl = await blobToDataUrl(th.blob)
-          this.photos.push({
-            key: 'n' + Date.now() + Math.random(), preview: out.preview,
-            dataUrl: dataUrl, thumbDataUrl: thumbDataUrl, kb: out.kb, saved: false,
-            takenAt: f.lastModified ? new Date(f.lastModified).toISOString() : '',
-          })
-        } catch (err) {
-          U.toast(err.message || '照片处理失败', 'bad')
-        }
-      }
-    },
-    async removePhoto(i) {
-      const ph = this.photos[i]
-      if (!ph) return
-      if (ph.saved && ph.id) {
-        try { await Store.rpc('photo_delete', { p_id: ph.id }) }
-        catch (e) { U.toast(U.errText(e), 'bad'); return }
-      }
-      this.photos.splice(i, 1)
-    },
-    async loadPhotos() {
-      if (!this.recordId) return
-      try {
-        const list = await Store.rpc('photo_list', { p_record_id: Number(this.recordId) }) || []
-        const out = []
-        for (const p of list) {
-          const hit = window.PhotoCache ? await PhotoCache.get(p.id) : null
-          out.push({ key: 's' + p.id, id: p.id, preview: (hit && hit.thumb) || p.thumb || '', saved: true })
-        }
-        this.photos = out
-      } catch (e) { /* 忽略 */ }
     },
   },
 }
@@ -894,8 +737,8 @@ window.Views.RecordView = {
             <div v-else class="photo-ph">原图</div>
           </div>
         </div>
-        <div class="tiny muted mt8" v-if="photosLoaded && photos.length">点击缩略图查看原图 · 上传于 {{ U.dayTime(photos[0].created_at) }}</div>
-        <div class="muted sm" v-if="photosLoaded && !photos.length">这条记录没有照片</div>
+        <div class="tiny muted mt8" v-if="photosLoaded && photos.length">点击缩略图查看原图（只读取本机缓存，不走云端）</div>
+        <div class="muted sm" v-if="photosLoaded && !photos.length">本机没有这条记录的照片缓存（照片只保存在提交时的设备）</div>
       </div>
 
       <div class="mask mask-center" v-if="fullPhoto" @click.self="fullPhoto = null">
@@ -912,25 +755,15 @@ window.Views.RecordView = {
         </div>
       </div>
 
-      <div class="actionbar" v-if="isMine">
-        <div class="inner">
-          <button v-if="pendingReq" class="btn btn-block btn-lg" disabled>修改申请审核中…</button>
-          <button v-else class="btn btn-primary btn-block btn-lg" @click="goEdit">申请修改（需管理员审核）</button>
-        </div>
-      </div>
-      <div class="center tiny muted mt12" v-if="isMine && !pendingReq">
-        修改需管理员审核，通过后才生效
-      </div>
     </template>
   </div>`,
 
-  data() { return { U, rec: null, canEdit: false, loading: true, photos: [], photosLoaded: false, photoLoading: false, fullPhoto: null } },
+  data() { return { U, rec: null, loading: true, photos: [], photosLoaded: false, photoLoading: false, fullPhoto: null } },
   computed: {
     isMine() {
       const me = Store.store.me
       return !!(this.rec && me && Number(this.rec.owner_id) === Number(me.id))
     },
-    pendingReq() { return !!(this.rec && this.rec.pending_request) },
     counselorText() {
       if (!this.rec) return '—'
       return U.matchCounselors(Store.store.counselorMap, U.recordClassHints(this.rec)) || this.rec.counselor || '—'
@@ -941,7 +774,7 @@ window.Views.RecordView = {
         code: c.code || '',
         expected: Number(c.expected) || 0,
         actual: c.actual === null || c.actual === undefined ? null : Number(c.actual),
-      }))
+      })).sort((a, b) => U.classCompare(a.code, b.code))
     },
   },
   mounted() { this.load() },
@@ -952,20 +785,14 @@ window.Views.RecordView = {
       if (!id || this.photoLoading) return
       this.photoLoading = true
       try {
-        const list = await Store.rpc('photo_list', { p_record_id: Number(id) }) || []
         const out = []
-        for (const p of list) {
-          const hit = window.PhotoCache ? await PhotoCache.get(p.id) : null
-          out.push({
-            id: p.id,
-            created_at: p.created_at,
-            thumb: (hit && hit.thumb) || p.thumb || '',
-            data: (hit && hit.data) || '',
-          })
+        for (const pid of localPhotoIds(id)) {
+          const hit = window.PhotoCache ? await PhotoCache.get(pid) : null
+          if (hit) out.push({ id: pid, thumb: hit.thumb || '', data: hit.data || '' })
         }
         this.photos = out
         this.photosLoaded = true
-      } catch (e) { U.toast(U.errText(e), 'bad') } finally { this.photoLoading = false }
+      } finally { this.photoLoading = false }
     },
     async openPhoto(i) {
       const ph = this.photos[i]
@@ -978,29 +805,13 @@ window.Views.RecordView = {
         this.fullPhoto = ph
         return
       }
-      this.photoLoading = true
-      try {
-        const d = await Store.rpc('photo_get', { p_id: ph.id })
-        ph.data = d.data
-        if (!ph.thumb && d.thumb) ph.thumb = d.thumb
-        if (window.PhotoCache) PhotoCache.put(ph.id, { thumb: ph.thumb, data: d.data })
-        this.fullPhoto = ph
-      } catch (e) { U.toast(U.errText(e), 'bad') } finally { this.photoLoading = false }
+      U.toast('本机没有这张照片的原图缓存', 'bad')
     },
-    goEdit() { Store.nav('/fill/edit/' + this.rec.id) },
     async load() {
       const id = this.$root.route.params.id
       try {
         const d = await Store.rpc('record_get', { p_id: Number(id) })
         this.rec = d.record
-        this.canEdit = !!d.can_edit
-        if (this.isMine) {
-          try {
-            const list = await Store.rpc('my_records', {}) || []
-            const m = list.find((x) => Number(x.id) === Number(id))
-            if (m) this.rec.pending_request = !!m.pending_request
-          } catch (e) { /* 忽略 */ }
-        }
       } catch (e) {
         U.toast(U.errText(e), 'bad')
         Store.nav('/')
@@ -1029,16 +840,14 @@ window.Views.MyRecordsView = {
         <div class="litem" v-for="r in list" :key="r.id" @click="go('/record/' + r.id)">
           <div class="row between">
             <div class="t1">{{ r.course_name }} <span class="muted sm">· {{ r.class_name }}</span></div>
-            <span class="badge" :class="r.pending_request ? 'badge-warn' : 'badge-pri'">
-              {{ r.pending_request ? '审核中' : '可申请修改' }}
-            </span>
           </div>
-          <div class="t2">{{ U.md(r.check_date) }} {{ U.weekdayCN(r.check_date) }} {{ U.periodText(r.period_from, r.period_to) }} · 出勤 {{ r.actual_count }}/{{ r.expected_count }}</div>
+          <div class="t2">{{ U.md(r.check_date) }} {{ U.weekdayCN(r.check_date) }} {{ U.periodText(r.period_from, r.period_to) }}</div>
+          <div class="mt8"><span class="ibox" v-for="(c, ci) in classParts(r)" :key="c + ci">{{ c }}</span><span class="ibox ibox-ok">出勤 {{ r.actual_count }}/{{ r.expected_count }}</span></div>
         </div>
       </div>
       <div class="muted sm" v-else-if="!loading">还没有查课记录</div>
       <div class="muted sm" v-else>加载中…</div>
-      <div class="tiny muted mt8">本学期全部记录；所有修改需管理员审核，通过后生效。</div>
+      <div class="tiny muted mt8">本学期全部记录。</div>
     </div>
   </div>`,
 
@@ -1047,18 +856,19 @@ window.Views.MyRecordsView = {
   methods: {
     go(p) { Store.nav(p) },
     back() { history.length > 1 ? history.back() : Store.nav('/') },
+    classParts(r) { return String(r.class_name || '').split(/[、,，+ ]+/).map((s) => s.trim()).filter(Boolean) },
     async load() {
       if (window.RecordCache) {
         try {
-          const cached = await RecordCache.all()
-          if (cached && cached.length) {
+          const cached = mineOnly(await RecordCache.all())
+          if (cached.length) {
             this.list = cached.sort((a, b) => (a.check_date < b.check_date ? 1 : -1))
             this.loading = false
           }
         } catch (e) { /* 忽略 */ }
       }
       try {
-        const rows = await Store.rpc('my_records', {}) || []
+        const rows = mineOnly(await Store.rpc('my_records', {}))
         rows.sort((a, b) => (a.check_date < b.check_date ? 1 : -1))
         this.list = rows
         if (window.RecordCache) RecordCache.putAll(rows)
@@ -1094,20 +904,9 @@ window.Views.MeView = {
     <div class="card" v-if="isAdmin">
       <div class="hd"><h2>管理</h2></div>
       <div class="list">
-        <div class="litem" @click="openNotice">
-          <div class="t1">发通知</div>
-          <div class="t2">向全体成员发布通知，可看历史通知</div>
-        </div>
         <div class="litem" @click="go('/admin/members')">
           <div class="t1">成员管理</div>
           <div class="t2">停用、设为管理员</div>
-        </div>
-        <div class="litem" @click="go('/admin/resets')">
-          <div class="row between">
-            <div class="t1">审核</div>
-            <span class="badge badge-bad" v-if="pendingTotal">{{ pendingTotal }} 条待处理</span>
-          </div>
-          <div class="t2">忘记密码重置、记录修改申请</div>
         </div>
         <div class="litem" @click="go('/class-stats')">
           <div class="t1">班级查课次数</div>
@@ -1133,16 +932,14 @@ window.Views.MeView = {
         <div class="litem" v-for="r in history" :key="r.id" @click="go('/record/' + r.id)">
           <div class="row between">
             <div class="t1">{{ r.course_name }} <span class="muted sm">· {{ r.class_name }}</span></div>
-            <span class="badge" :class="r.pending_request ? 'badge-warn' : 'badge-pri'">
-              {{ r.pending_request ? '审核中' : '可申请修改' }}
-            </span>
           </div>
-          <div class="t2">{{ U.md(r.check_date) }} {{ U.weekdayCN(r.check_date) }} {{ U.periodText(r.period_from, r.period_to) }} · 出勤 {{ r.actual_count }}/{{ r.expected_count }}</div>
+          <div class="t2">{{ U.md(r.check_date) }} {{ U.weekdayCN(r.check_date) }} {{ U.periodText(r.period_from, r.period_to) }}</div>
+          <div class="mt8"><span class="ibox" v-for="(c, ci) in classParts(r)" :key="c + ci">{{ c }}</span><span class="ibox ibox-ok">出勤 {{ r.actual_count }}/{{ r.expected_count }}</span></div>
         </div>
       </div>
       <div class="muted sm" v-else-if="!histLoading">还没有查课记录</div>
       <div class="muted sm" v-else>加载中…</div>
-      <div class="tiny muted mt8">本学期全部记录；所有修改需管理员审核，通过后生效。</div>
+      <div class="tiny muted mt8">本学期全部记录。</div>
     </div>
 
     <div class="card">
@@ -1168,33 +965,12 @@ window.Views.MeView = {
     <div class="mt12">
       <button class="btn btn-danger btn-block" @click="logout">退出登录</button>
     </div>
-
-    <div class="mask" v-if="showNotice" @click.self="showNotice = false">
-      <div class="sheet">
-        <h3>发通知</h3>
-        <textarea class="textarea" v-model="noticeDraft" maxlength="500" placeholder="输入要通知全体成员的内容，例如：本周三下午抽查 3-4 节，请提前选好课"></textarea>
-        <div class="tiny muted mt8">{{ noticeDraft.length }}/500</div>
-        <button class="btn btn-primary btn-block mt8" :disabled="noticeBusy" @click="postNotice">{{ noticeBusy ? '发布中…' : '发布通知' }}</button>
-        <div class="divider"></div>
-        <div class="strong sm">历史通知</div>
-        <div class="mt8" v-if="notices.length">
-          <div class="hm-notice-item" v-for="n in notices" :key="n.id">
-            <div class="hm-notice-c">{{ n.content }}</div>
-            <div class="tiny muted">{{ n.author }} · {{ U.dayTime(n.created_at) }}</div>
-          </div>
-        </div>
-        <div class="muted sm" v-else>暂无</div>
-        <button class="btn btn-block mt12" @click="showNotice = false">关闭</button>
-      </div>
-    </div>
   </div>`,
 
-  data() { return { U, history: [], histLoading: true, pendingEdits: 0, showNotice: false, noticeDraft: '', notices: [], noticeBusy: false } },
+  data() { return { U, history: [], histLoading: true } },
   computed: {
     me() { return Store.store.me },
     isAdmin() { return Store.store.isAdmin },
-    pendingResets() { return Store.store.pendingResets },
-    pendingTotal() { return (Number(this.pendingResets) || 0) + (Number(this.pendingEdits) || 0) },
     week() { return Store.weekNow() },
     dark() { return Store.store.theme === 'dark' },
     semName() {
@@ -1205,48 +981,24 @@ window.Views.MeView = {
   mounted() {
     Store.refresh().catch(() => {})
     this.loadHistory()
-    this.loadReqCount()
   },
   methods: {
     go(p) { Store.nav(p) },
+    classParts(r) { return String(r.class_name || '').split(/[、,，+ ]+/).map((s) => s.trim()).filter(Boolean) },
     toggleTheme() { Store.toggleTheme() },
-    openNotice() { this.showNotice = true; this.loadNotices() },
-    async loadNotices() {
-      try { this.notices = await Store.rpc('notice_list', {}) || [] }
-      catch (e) { /* 忽略 */ }
-    },
-    async postNotice() {
-      const c = (this.noticeDraft || '').trim()
-      if (!c) { U.toast('通知内容不能为空', 'bad'); return }
-      this.noticeBusy = true
-      try {
-        await Store.rpc('notice_post', { p_content: c })
-        this.noticeDraft = ''
-        U.toast('已发布')
-        await this.loadNotices()
-      } catch (e) { U.toast(U.errText(e), 'bad') }
-      finally { this.noticeBusy = false }
-    },
-    async loadReqCount() {
-      if (!Store.store.isAdmin) return
-      try {
-        const list = await Store.rpc('edit_requests_list', {}) || []
-        this.pendingEdits = list.filter((q) => q.status === 'pending').length
-      } catch (e) { /* 忽略 */ }
-    },
     async loadHistory() {
       if (Store.store.isAdmin) { this.histLoading = false; return }
       if (window.RecordCache) {
         try {
-          const cached = await RecordCache.all()
-          if (cached && cached.length) {
+          const cached = mineOnly(await RecordCache.all())
+          if (cached.length) {
             this.history = cached.sort((a, b) => (a.check_date < b.check_date ? 1 : -1))
             this.histLoading = false
           }
         } catch (e) { /* 忽略 */ }
       }
       try {
-        const list = await Store.rpc('my_records', {}) || []
+        const list = mineOnly(await Store.rpc('my_records', {}))
         list.sort((a, b) => (a.check_date < b.check_date ? 1 : -1))
         this.history = list
         if (window.RecordCache) RecordCache.putAll(list)

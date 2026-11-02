@@ -1,4 +1,4 @@
-// 管理员端（续）：记录详情与修正 / 成员 / 学期 / 导出 / 忘记密码审核
+// 管理员端（续）：记录详情与修正 / 成员 / 学期 / 导出
 window.Views = window.Views || {}
 
 // 姓名首字拼音首字母（覆盖名单用字与常见姓氏，未收录的归入 #）
@@ -23,7 +23,7 @@ function pyInitial(name) {
 }
 
 const FIELD_LABELS = {
-  expected_count: '应到', actual_count: '实到', late_count: '迟到', early_count: '早退',
+  expected_count: '应到', actual_count: '实到', late_count: '迟到',
   absent_count: '旷课', leave_count: '请假', discipline_tags: '纪律问题', discipline_note: '课程主要内容',
   remark: '检查备注', course_name: '课程', class_name: '班级', room: '教室', teacher: '任课老师',
   check_date: '查课日期', period_from: '节次起', period_to: '节次止',
@@ -82,7 +82,7 @@ window.Views.AdminRecord = {
         <div class="stat warn"><div class="n">{{ rec.absent_count }}</div><div class="t">旷课</div></div>
       </div>
       <div class="row between tiny muted mt12">
-        <span>迟到 {{ rec.late_count }}</span><span>早退 {{ rec.early_count }}</span><span>请假 {{ rec.leave_count }}</span>
+        <span>迟到 {{ rec.late_count }}</span><span>请假 {{ rec.leave_count }}</span>
       </div>
     </div>
 
@@ -208,7 +208,6 @@ window.Views.AdminRecord = {
           <div class="field"><label class="label">旷课</label><input class="input" type="number" v-model.number="edit.absent_count"></div>
           <div class="field"><label class="label">请假</label><input class="input" type="number" v-model.number="edit.leave_count"></div>
           <div class="field"><label class="label">迟到</label><input class="input" type="number" v-model.number="edit.late_count"></div>
-          <div class="field"><label class="label">早退</label><input class="input" type="number" v-model.number="edit.early_count"></div>
         </div>
         <div class="tiny" style="margin-bottom:12px" :style="sumOkEdit ? 'color:var(--muted)' : 'color:var(--bad)'">
           {{ sumOkEdit ? '人数合计一致' : (edit.classes && edit.classes.length ? '每班实到不能超过应到' : '应到应等于 实到 + 旷课 + 请假') }}
@@ -241,7 +240,7 @@ window.Views.AdminRecord = {
         code: c.code || '',
         expected: Number(c.expected) || 0,
         actual: c.actual === null || c.actual === undefined ? null : Number(c.actual),
-      }))
+      })).sort((a, b) => U.classCompare(a.code, b.code))
     },
     counselorText() {
       if (!this.rec) return '—'
@@ -261,7 +260,7 @@ window.Views.AdminRecord = {
   },
   mounted() { this.load() },
   methods: {
-    back() { Store.nav('/admin') },
+    back() { if (history.length > 1) history.back(); else Store.nav('/admin/checks') },
     actualOf(c) { return c.actual === null ? '—' : c.actual },
     fmtTime(t) { return t ? U.shortTime(t) : '未知' },
     async loadPhotos() {
@@ -335,7 +334,7 @@ window.Views.AdminRecord = {
       const cls = this.classList
       this.edit = {
         expected_count: this.rec.expected_count, actual_count: this.rec.actual_count,
-        late_count: this.rec.late_count, early_count: this.rec.early_count,
+        late_count: this.rec.late_count,
         absent_count: this.rec.absent_count, leave_count: this.rec.leave_count,
         remark: this.rec.remark || '', correction_note: '',
         course_name: this.rec.course_name || '', teacher: this.rec.teacher || '', room: this.rec.room || '',
@@ -386,7 +385,6 @@ window.Views.AdminRecord = {
             classes: hasCls ? this.edit.classes.map((c) => ({ code: c.code, expected: Number(c.expected) || 0, actual: Number(c.actual) || 0 })) : [],
             other_actual: Number(this.edit.other_actual) || 0,
             late_count: Number(this.edit.late_count) || 0,
-            early_count: Number(this.edit.early_count) || 0,
             absent_count: Number(this.edit.absent_count) || 0,
             leave_count: Number(this.edit.leave_count) || 0,
             remark: this.edit.remark || '',
@@ -424,19 +422,6 @@ window.Views.AdminMembers = {
       <div class="side right"></div>
     </div>
 
-    <div class="card mt12" v-if="withRequest.length">
-      <div class="hd"><h2>有待处理申请</h2><span class="badge badge-warn">{{ withRequest.length }}</span></div>
-      <div class="list">
-        <div class="litem" v-for="m in withRequest" :key="m.id" @click="go('/admin/resets')">
-          <div class="row between">
-            <div class="t1">{{ m.name }} <span class="muted sm">{{ m.student_no }}</span></div>
-            <span class="badge badge-bad">待审核</span>
-          </div>
-          <div class="t2">忘记密码，申请重置</div>
-        </div>
-      </div>
-    </div>
-
     <div class="card mt12">
       <div class="hd">
         <h2>全部成员</h2>
@@ -448,7 +433,7 @@ window.Views.AdminMembers = {
         <button class="mem-search-x" v-if="kw" @click="kw = ''" title="清空">✕</button>
       </div>
 
-      <div class="tablewrap adm-wide-only">
+      <div class="tablewrap adm-wide-only mem-tb-compact">
         <table class="tb">
           <thead><tr><th>姓名</th><th>学号</th><th>职务</th><th>身份</th><th>状态</th><th>最近登录</th><th>操作</th></tr></thead>
           <tbody v-for="g in groups" :key="'g' + g.key">
@@ -480,7 +465,7 @@ window.Views.AdminMembers = {
       <div class="adm-narrow-only">
         <div v-for="g in groups" :key="'cg' + g.key">
           <div class="mem-group-t" :id="'memc-' + g.key">{{ g.key }}</div>
-          <div class="mem-card" v-for="m in g.list" :key="'c' + m.id">
+          <div class="mem-card mem-compact" v-for="m in g.list" :key="'c' + m.id">
             <div class="mem-top">
               <div class="mem-name">
                 {{ m.name }}
@@ -497,8 +482,6 @@ window.Views.AdminMembers = {
             <div class="mem-acts">
               <button class="btn btn-sm" @click="toggleRole(m)">{{ m.role === 'admin' ? '降为组员' : '设为管理员' }}</button>
               <button class="btn btn-sm" @click="resetPwd(m)">重置密码</button>
-            </div>
-            <div class="mem-acts">
               <button class="btn btn-sm" :class="m.status === 'active' ? 'btn-danger' : ''" @click="toggleStatus(m)">
                 {{ m.status === 'active' ? '停用' : '恢复' }}
               </button>
@@ -531,13 +514,12 @@ window.Views.AdminMembers = {
     </div>
 
     <div class="tiny muted mt12">
-      初始密码为本人学号，首次登录强制修改密码。忘记密码需在「忘记密码审核」里通过申请，通过后密码重置为学号，登录后需重新设密。
+      初始密码为本人学号，首次登录强制修改密码。忘记密码请联系管理员，由管理员在成员管理中重置为学号，登录后需重新设密。
     </div>
   </div>`,
 
   data() { return { U, users: [], confirmAct: null, busy: false, kw: '' } },
   computed: {
-    withRequest() { return this.users.filter((m) => m.has_request) },
     filtered() {
       const k = this.kw.trim().toLowerCase()
       if (!k) return this.users
@@ -566,7 +548,7 @@ window.Views.AdminMembers = {
     },
     inviteText() {
       const link = location.origin + location.pathname
-      return `【学风建设系统使用说明】\n1. 手机浏览器打开：${link}\n2. 账号是你的姓名，初始密码是你的学号\n3. 首次登录会强制修改密码，请立即设置新密码\n4. 周末先「选下周要查的课」，工作日回来填写查课结果\n5. 忘记密码：在登录页点「忘记密码」，提交后等我审核，通过后密码重置为你的学号，登录后需重新设密`
+      return `【学风建设系统使用说明】\n1. 手机浏览器打开：${link}\n2. 账号是你的姓名，初始密码是你的学号\n3. 首次登录会强制修改密码，请立即设置新密码\n4. 周末先「选下周要查的课」，工作日回来填写查课结果\n5. 忘记密码：联系管理员，在成员管理中重置为你的学号，登录后需重新设密`
     },
   },
   mounted() { this.load() },
@@ -606,23 +588,33 @@ window.Views.AdminMembers = {
         this.busy = false
       }
     },
-    async toggleRole(m) {
+    toggleRole(m) {
       const role = m.role === 'admin' ? 'member' : 'admin'
-      if (!window.confirm(`将 ${m.name} 设为${role === 'admin' ? '管理员' : '普通组员'}？`)) return
-      try {
-        await Store.rpc('staff_update', { p_id: m.id, p_status: '', p_role: role })
-        U.toast('已更新')
-        this.load()
-      } catch (e) { U.toast(U.errText(e), 'bad') }
+      const toAdmin = role === 'admin'
+      this.confirmAct = {
+        title: toAdmin ? '设为管理员' : '降为组员',
+        desc: `将「${m.name}」${toAdmin ? '设为管理员？\n\n管理员可查看和修改全部成员的数据。' : '降为普通组员？\n\n对方将失去管理后台权限。'}`,
+        okText: toAdmin ? '设为管理员' : '降为组员',
+        run: async () => {
+          await Store.rpc('staff_update', { p_id: m.id, p_status: '', p_role: role })
+          U.toast('已更新')
+          this.load()
+        },
+      }
     },
-    async toggleStatus(m) {
+    toggleStatus(m) {
       const status = m.status === 'active' ? 'disabled' : 'active'
-      if (!window.confirm(`确定要${status === 'active' ? '恢复' : '停用'} ${m.name} 吗？`)) return
-      try {
-        await Store.rpc('staff_update', { p_id: m.id, p_status: status, p_role: '' })
-        U.toast('已更新')
-        this.load()
-      } catch (e) { U.toast(U.errText(e), 'bad') }
+      const restore = status === 'active'
+      this.confirmAct = {
+        title: restore ? '恢复账号' : '停用账号',
+        desc: `确定要${restore ? '恢复' : '停用'}「${m.name}」吗？${restore ? '' : '\n\n停用后对方将被强制下线，且无法再登录。'}`,
+        okText: restore ? '恢复' : '停用',
+        run: async () => {
+          await Store.rpc('staff_update', { p_id: m.id, p_status: status, p_role: '' })
+          U.toast('已更新')
+          this.load()
+        },
+      }
     },
     copyInvite() {
       const text = this.inviteText
@@ -746,10 +738,14 @@ window.Views.AdminExport = {
     <div class="card">
       <div class="row between">
         <div>
-          <div class="strong">{{ count === null ? '尚未统计' : '将导出 ' + count + ' 条记录' }}</div>
-          <div class="tiny muted mt8">{{ summary }}</div>
+          <div class="strong">{{ count === null ? '正在统计…' : '将导出 ' + count + ' 条记录' }}</div>
+          <div class="tiny muted mt8">{{ summary || '按所选周次统计中…' }}</div>
         </div>
-        <button class="btn btn-sm" :disabled="loading" @click="preview">{{ loading ? '统计中' : '预览数量' }}</button>
+      </div>
+      <div class="stat-grid mt12">
+        <div class="stat"><div class="n">{{ gradeCounts['大一'] }}</div><div class="t">大一 已查</div></div>
+        <div class="stat ok"><div class="n">{{ gradeCounts['大二'] }}</div><div class="t">大二 已查</div></div>
+        <div class="stat"><div class="n">{{ gradeCounts['大三'] }}</div><div class="t">大三 已查</div></div>
       </div>
     </div>
 
@@ -758,7 +754,7 @@ window.Views.AdminExport = {
     </button>
   </div>`,
 
-  data() { return { week: 0, busy: false, loading: false, count: null, summary: '' } },
+  data() { return { week: 0, busy: false, loading: false, count: null, summary: '', gradeCounts: { '大一': 0, '大二': 0, '大三': 0 } } },
   computed: {
     sem() { return Store.store.semester },
     weekList() {
@@ -772,6 +768,10 @@ window.Views.AdminExport = {
     this.week = Store.weekNow() || 1
     // 提前加载 SheetJS，避免点「生成并下载」时因异步加载丢失用户手势导致不触发下载
     XLS.loadXLSX().catch(() => {})
+  },
+  watch: {
+    // 进入页面（首次赋值）与切换周次时自动统计，无需手动点「预览数量」
+    week() { this.preview() },
   },
   methods: {
     go(p) { Store.nav(p) },
@@ -802,10 +802,15 @@ window.Views.AdminExport = {
       try {
         const data = await this.collect()
         this.count = data.records.length
-        const expected = data.records.reduce((s, r) => s + (Number(r.expected_count) || 0), 0)
-        const actual = data.records.reduce((s, r) => s + (Number(r.actual_count) || 0), 0)
         const pending = data.plans.filter((p) => p.status === 'planned').length
-        this.summary = `应到合计 ${expected} 人次，实到 ${actual} 人次，未查课 ${pending} 节`
+        const total = data.records.length + pending
+        this.summary = `课程总节数 ${total} 节（已查 ${data.records.length} · 未查 ${pending}）`
+        const gc = { '大一': 0, '大二': 0, '大三': 0 }
+        data.records.forEach((r) => {
+          const gs = (window.XLS && XLS.gradesOf) ? XLS.gradesOf(r) : []
+          gs.forEach((g) => { if (gc[g] != null) gc[g] += 1 })
+        })
+        this.gradeCounts = gc
       } catch (e) {
         U.toast(U.errText(e), 'bad')
       } finally { this.loading = false }
@@ -821,157 +826,6 @@ window.Views.AdminExport = {
       } catch (e) {
         U.toast(U.errText(e), 'bad')
       } finally { this.busy = false }
-    },
-  },
-}
-
-window.Views.AdminResets = {
-  template: `
-  <div class="shell shell-wide">
-    <div class="topbar">
-      <div class="side"><button class="iconbtn back" @click="go('/admin')">‹</button></div>
-      <h1>审核</h1>
-      <div class="side right"></div>
-    </div>
-
-    <div class="card mt12">
-      <div class="hd"><h2>记录修改申请</h2><span class="badge badge-warn" v-if="pendingRecord.length">{{ pendingRecord.length }}</span></div>
-      <div class="list" v-if="recordReqs.length">
-        <div class="litem" v-for="q in recordReqs" :key="'e' + q.id" style="cursor:default">
-          <div class="row between">
-            <div class="t1">{{ q.user_name }} <span class="muted sm">· {{ q.course_name }}</span></div>
-            <span class="badge" :class="q.status === 'pending' ? 'badge-warn' : (q.status === 'approved' ? 'badge-ok' : '')">
-              {{ q.status === 'pending' ? '待审核' : (q.status === 'approved' ? '已通过' : '已拒绝') }}
-            </span>
-          </div>
-          <div class="t2">{{ U.md(q.check_date) }} {{ U.weekdayCN(q.check_date) }} {{ U.periodText(q.period_from, q.period_to) }} · {{ q.class_name }} · 原出勤 {{ q.actual_count }}/{{ q.expected_count }}</div>
-          <div class="sm mt8"><span class="muted">原因：</span>{{ q.reason }}</div>
-          <div class="tiny muted mt8" style="white-space:pre-line"><span class="muted">申请内容：</span>{{ reqDiff(q) }}</div>
-          <div class="row mt8" style="gap:8px" v-if="q.status === 'pending'">
-            <button class="btn btn-sm btn-primary" @click="handleEditReq(q, true)">通过</button>
-            <button class="btn btn-sm" @click="handleEditReq(q, false)">拒绝</button>
-            <button class="btn btn-sm" @click="go('/admin/records/' + q.record_id)">看记录</button>
-          </div>
-        </div>
-      </div>
-      <div class="muted sm" v-else>没有记录修改申请</div>
-    </div>
-
-    <div class="card mt12">
-      <div class="hd"><h2>课程信息修改申请</h2><span class="badge badge-warn" v-if="pendingCourse.length">{{ pendingCourse.length }}</span></div>
-      <div class="list" v-if="courseReqs.length">
-        <div class="litem" v-for="q in courseReqs" :key="'c' + q.id" style="cursor:default">
-          <div class="row between">
-            <div class="t1">{{ q.user_name }} <span class="muted sm">· {{ q.course_name }}</span></div>
-            <span class="badge" :class="q.status === 'pending' ? 'badge-warn' : (q.status === 'approved' ? 'badge-ok' : '')">
-              {{ q.status === 'pending' ? '待审核' : (q.status === 'approved' ? '已通过' : '已拒绝') }}
-            </span>
-          </div>
-          <div class="t2">{{ U.md(q.check_date) }} {{ U.weekdayCN(q.check_date) }} {{ U.periodText(q.period_from, q.period_to) }} · {{ q.class_name }}</div>
-          <div class="sm mt8"><span class="muted">原因：</span>{{ q.reason }}</div>
-          <div class="tiny muted mt8" style="white-space:pre-line"><span class="muted">改为：</span>{{ reqDiff(q) }}</div>
-          <div class="row mt8" style="gap:8px" v-if="q.status === 'pending'">
-            <button class="btn btn-sm btn-primary" @click="handleEditReq(q, true)">通过</button>
-            <button class="btn btn-sm" @click="handleEditReq(q, false)">拒绝</button>
-            <button class="btn btn-sm" @click="go('/admin/records/' + q.record_id)">看记录</button>
-          </div>
-        </div>
-      </div>
-      <div class="muted sm" v-else>没有课程信息修改申请</div>
-      <div class="tiny muted mt8">成员填写结果时更改了预计到岗时间/应到人数；通过后记录更新。</div>
-    </div>
-
-    <div class="card mt12">
-      <div class="hd"><h2>忘记密码</h2><span class="badge badge-warn" v-if="pending.length">{{ pending.length }}</span></div>
-      <div class="list" v-if="pending.length">
-        <div class="litem" v-for="q in pending" :key="q.id" style="cursor:default">
-          <div class="row between">
-            <div>
-              <div class="t1">{{ q.name }} <span class="muted sm">{{ q.student_no }}</span></div>
-              <div class="t2">{{ q.title || '组员' }} · 申请于 {{ U.dayTime(q.created_at) }}</div>
-            </div>
-            <div class="row">
-              <button class="btn btn-sm" @click="handle(q, false)">拒绝</button>
-              <button class="btn btn-sm btn-primary" @click="handle(q, true)">通过</button>
-            </div>
-          </div>
-        </div>
-      </div>
-      <div class="muted sm" v-else>没有待处理的申请</div>
-    </div>
-
-    <div class="card" v-if="done.length">
-      <div class="hd"><h2>最近处理</h2><span class="tiny muted">7 天内</span></div>
-      <div class="list">
-        <div class="litem" v-for="q in done" :key="q.id" style="cursor:default">
-          <div class="row between">
-            <div class="t1">{{ q.name }} <span class="muted sm">{{ q.student_no }}</span></div>
-            <span class="badge" :class="q.status === 'approved' ? 'badge-ok' : ''">{{ q.status === 'approved' ? '已通过' : '已拒绝' }}</span>
-          </div>
-          <div class="t2">由 {{ q.handled_by || '管理员' }} 于 {{ U.dayTime(q.handled_at) }} 处理</div>
-        </div>
-      </div>
-    </div>
-
-    <div class="tiny muted mt12">
-      通过后，该成员的密码会重置为其学号，登录后需立即修改密码。
-    </div>
-  </div>`,
-
-  data() { return { U, list: [], editReqs: [] } },
-  computed: {
-    pending() { return this.list.filter((q) => q.status === 'pending') },
-    done() { return this.list.filter((q) => q.status !== 'pending') },
-    recordReqs() { return this.editReqs.filter((q) => (q.kind || 'record_edit') !== 'course_info') },
-    courseReqs() { return this.editReqs.filter((q) => q.kind === 'course_info') },
-    pendingRecord() { return this.recordReqs.filter((q) => q.status === 'pending') },
-    pendingCourse() { return this.courseReqs.filter((q) => q.status === 'pending') },
-  },
-  mounted() { this.load() },
-  methods: {
-    go(p) { Store.nav(p) },
-    async load() {
-      try { this.list = await Store.rpc('resets_list') || [] } catch (e) { U.toast(U.errText(e), 'bad') }
-      try { this.editReqs = await Store.rpc('edit_requests_list', {}) || [] } catch (e) { /* 忽略 */ }
-    },
-    reqDiff(q) {
-      const p = q.payload || {}
-      const label = { course_name: '课程', class_name: '班级', teacher: '老师', room: '教室', check_date: '日期', period_from: '节次起', period_to: '节次止', absent_count: '旷课', leave_count: '请假', expected_count: '应到', actual_count: '实到', teacher_score: '老师评分', student_score: '学生评分', remark: '备注' }
-      const parts = []
-      Object.keys(label).forEach((k) => {
-        if (!(k in p)) return
-        const v = p[k]
-        parts.push(`${label[k]} → ${v === '' ? '空' : v}`)
-      })
-      if (Array.isArray(p.classes) && p.classes.length) {
-        parts.push('各班实到 → ' + p.classes.map((c) => `${c.code} ${c.actual}`).join('、'))
-      }
-      return parts.length ? parts.join('\n') : '（无字段变化）'
-    },
-    async handleEditReq(q, approve) {
-      const tip = approve ? `通过 ${q.user_name} 的修改申请？\n\n通过后记录立即更新。` : `拒绝 ${q.user_name} 的修改申请？`
-      if (!window.confirm(tip)) return
-      try {
-        await Store.rpc('edit_request_handle', { p_id: q.id, p_approve: approve })
-        U.toast(approve ? '已通过，记录已更新' : '已拒绝')
-        this.load()
-      } catch (e) { U.toast(U.errText(e), 'bad') }
-    },
-    async handle(q, approve) {
-      const tip = approve ? `通过 ${q.name} 的重置申请？密码将重置为其学号。` : `拒绝 ${q.name} 的申请？`
-      if (!window.confirm(tip)) return
-      const self = Store.store.me && Store.store.me.name === q.name
-      try {
-        await Store.rpc('resets_handle', { p_id: q.id, p_approve: approve })
-        if (self && approve) {
-          U.toast('已重置为你的学号，请用学号登录后修改密码')
-          setTimeout(() => Store.logout(), 800)
-          return
-        }
-        U.toast(approve ? '已通过，密码已重置为学号' : '已拒绝')
-        this.load()
-        Store.refresh().catch(() => {})
-      } catch (e) { U.toast(U.errText(e), 'bad') }
     },
   },
 }
@@ -1103,7 +957,7 @@ window.Views.AdminPlanEdit = {
     this.load()
   },
   methods: {
-    back() { Store.nav('/admin/plans?week=' + (this.plan ? this.plan.week_no : Store.weekNow())) },
+    back() { if (history.length > 1) history.back(); else Store.nav('/admin/checks?week=' + (this.plan ? this.plan.week_no : Store.weekNow())) },
     setPeriod(p) { this.form.period_from = p[0]; this.form.period_to = p[1] },
     normCode(i) {
       const c = this.form.classes[i]
@@ -1146,7 +1000,7 @@ window.Views.AdminPlanEdit = {
         this.fill(plan)
       } catch (e) {
         U.toast(U.errText(e), 'bad')
-        Store.nav('/admin/plans')
+        Store.nav('/admin/checks')
       } finally {
         this.loading = false
       }
@@ -1161,7 +1015,7 @@ window.Views.AdminPlanEdit = {
       this.form.room = p.room || ''
       const cls = Array.isArray(p.classes) ? p.classes : []
       this.form.classes = cls.length
-        ? cls.map((c) => ({ code: c.code || '', expected: c.expected === 0 ? '0' : String(c.expected) }))
+        ? cls.slice().sort((a, b) => U.classCompare(a.code, b.code)).map((c) => ({ code: c.code || '', expected: c.expected === 0 ? '0' : String(c.expected) }))
         : [{ code: '', expected: '' }]
       this.form.other_expected = String(Number(p.other_expected) || 0)
       this.form.arrive_before = p.arrive_before || ''
@@ -1188,7 +1042,7 @@ window.Views.AdminPlanEdit = {
           },
         })
         U.toast('已保存')
-        Store.nav('/admin/plans?week=' + this.weekTarget)
+        Store.nav('/admin/checks?week=' + this.weekTarget)
       } catch (e) {
         this.err = U.errText(e)
       } finally {

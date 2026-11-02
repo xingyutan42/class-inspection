@@ -73,7 +73,6 @@
     store.stats = d.stats || store.stats
     store.counselorMap = d.counselor_map || store.counselorMap || {}
     store.isAdmin = !!(d.me && d.me.role === 'admin')
-    store.pendingResets = d.pending_resets || 0
   }
 
   async function rpc(name, params, skipToken) {
@@ -107,31 +106,31 @@
     const params = {}
     if (seg.length === 0) name = 'home'
     else if (seg[0] === 'login') name = 'login'
-    else if (seg[0] === 'forgot') name = 'forgot'
     else if (seg[0] === 'change') name = 'change'
     else if (seg[0] === 'me') name = 'me'
     else if (seg[0] === 'my-records') name = 'myRecords'
+    else if (seg[0] === 'my-plans') name = 'myPlans'
+    else if (seg[0] === 'my-returned') name = 'myReturned'
     else if (seg[0] === 'settings') name = 'settings'
     else if (seg[0] === 'class-stats') name = 'classStats'
     else if (seg[0] === 'plan') {
       name = 'planEdit'
       params.id = seg[1] === 'new' ? '' : (seg[1] || '')
     } else if (seg[0] === 'fill') {
-      if (seg[1] === 'edit') { name = 'fill'; params.recordId = seg[2] }
-      else if (seg[1] === 'new') { name = 'fill'; params.extra = '1' }
+      if (seg[1] === 'new') { name = 'fill'; params.extra = '1' }
       else { name = 'fill'; params.planId = seg[1] }
     } else if (seg[0] === 'record') {
       name = 'record'; params.id = seg[1]
     } else if (seg[0] === 'admin') {
       if (seg.length === 1) name = 'adminHome'
+      else if (seg[1] === 'checks') name = 'adminChecks'
       else if (seg[1] === 'plans') {
-        if (seg[2]) { name = 'adminPlan'; params.id = seg[2] } else name = 'adminHome'
+        if (seg[2]) { name = 'adminPlan'; params.id = seg[2] } else name = 'adminChecks'
       }
-      else if (seg[1] === 'records') { name = seg[2] ? 'adminRecord' : 'adminHome'; params.id = seg[2] }
+      else if (seg[1] === 'records') { name = seg[2] ? 'adminRecord' : 'adminChecks'; params.id = seg[2] }
       else if (seg[1] === 'members') name = 'adminMembers'
       else if (seg[1] === 'semesters') name = 'adminSemesters'
       else if (seg[1] === 'export') name = 'adminExport'
-      else if (seg[1] === 'resets') name = 'adminResets'
     }
     return { name, params, query }
   }

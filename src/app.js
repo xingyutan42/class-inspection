@@ -8,23 +8,23 @@
       route() { return store.route },
       viewKey() {
         const r = store.route
-        return [r.name, r.params.id || '', r.params.planId || '', r.params.recordId || '', r.query.week || ''].join('|')
+        return [r.name, r.params.id || '', r.params.planId || '', r.query.week || ''].join('|')
       },
       view() {
         if (store.initError) return ''
         if (!store.booted) return ''
         const r = store.route.name
-        if (!store.me) return r === 'forgot' ? 'forgot-view' : 'login-view'
+        if (!store.me) return 'login-view'
         if (store.me.must_change && r !== 'change') return 'change-password-view'
-        if (r === 'login' || r === 'forgot') return 'home-view'
+        if (r === 'login') return 'home-view'
 
         const map = {
           home: 'home-view', planEdit: 'plan-form-view', fill: 'fill-view',
           record: 'record-view', me: 'me-view', myRecords: 'my-records-view', change: 'change-password-view', settings: 'settings-view',
-          classStats: 'class-stats-view',
-          adminHome: 'admin-home', adminPlan: 'admin-plan-edit',
+          classStats: 'class-stats-view', myPlans: 'my-plans-view', myReturned: 'my-returned-view',
+          adminHome: 'admin-home', adminChecks: 'admin-checks', adminPlan: 'admin-plan-edit',
           adminRecord: 'admin-record', adminMembers: 'admin-members',
-          adminSemesters: 'admin-semesters', adminExport: 'admin-export', adminResets: 'admin-resets',
+          adminSemesters: 'admin-semesters', adminExport: 'admin-export',
         }
         const target = map[r] || 'home-view'
         if (r.indexOf('admin') === 0 && !store.isAdmin) return 'home-view'
@@ -33,7 +33,8 @@
       tabs() {
         if (!store.isAdmin) return []
         return [
-          { href: '#/admin', icon: 'chart', t: '总览', match: ['adminHome', 'adminRecord', 'adminPlan'] },
+          { href: '#/admin', icon: 'users', t: '成员', match: ['adminHome'] },
+          { href: '#/admin/checks', icon: 'list', t: '课检', match: ['adminChecks', 'adminRecord', 'adminPlan'] },
           { href: '#/me', icon: 'me', t: '我的', match: ['me', 'change', 'adminMembers'] },
         ]
       },
@@ -42,8 +43,8 @@
         if (!store.me || store.me.must_change) return false
         // 成员端是单页面板，不使用底部导航
         if (!store.isAdmin) return false
-        // 只有一级菜单常驻底部导航，二级页（成员管理/学期设置/导出/审核/记录详情）不显示
-        return ['adminHome', 'adminRecord', 'adminPlan', 'me'].indexOf(store.route.name) >= 0
+        // 只有一级菜单常驻底部导航，二级页（成员管理/学期设置/导出/记录详情）不显示
+        return ['adminHome', 'adminChecks', 'me'].indexOf(store.route.name) >= 0
       },
     },
     mounted() {

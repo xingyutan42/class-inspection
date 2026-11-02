@@ -13,12 +13,6 @@ const TAGS = ['说话', '吃东西', '后排聚集', '随意进出', '其他']
 window.Views.HomeView = {
   template: `
   <div class="hm">
-    <section class="hm-notice" v-if="latestNotice" @click="showNotices = true">
-      <span class="hm-notice-tag">通知</span>
-      <span class="hm-notice-c">{{ latestNotice.content }}</span>
-      <span class="hm-notice-more">全部 ›</span>
-    </section>
-
     <section class="hm-info">
       <div class="grow">
         <div class="hm-info-name">{{ me.name }} <span class="hm-info-no">{{ me.student_no }}</span></div>
@@ -44,7 +38,7 @@ window.Views.HomeView = {
       <span class="admin-entry-go">›</span>
     </button>
 
-    <section class="card hm-panel">
+    <section class="card hm-panel" v-if="!isAdmin">
       <div class="hd"><h2>查课</h2><span class="tiny link" @click="goStats">班级次数 ›</span></div>
       <div v-if="loading"><div class="empty">加载中…</div></div>
       <template v-else>
@@ -52,8 +46,13 @@ window.Views.HomeView = {
         <ul class="hm-list" v-if="due.length">
           <li v-for="p in due" :key="p.id" class="hm-item" @click="fill(p)">
             <div class="hm-item-main">
-              <div class="hm-item-t">{{ p.course_name }} <span class="badge badge-bad" v-if="overdue(p)">已过期</span></div>
-              <div class="hm-item-s">{{ dueLine(p) }}</div>
+              <div class="hm-item-t">{{ p.course_name }} <span class="badge badge-bad" v-if="overdue(p)">已过期</span><span class="badge badge-bad" v-if="p.note">打回</span></div>
+              <div class="hm-item-s">{{ U.md(p.check_date) }} {{ U.weekdayCN(p.check_date) }} {{ U.periodText(p.period_from, p.period_to) }}</div>
+              <div class="mt8">
+                <span class="ibox" :class="classOn(c) ? 'ibox-bad' : ''" v-for="(c, ci) in classParts(p)" :key="c + ci">{{ c }}</span>
+                <span class="ibox ibox-pri" v-if="p.room">教室 {{ p.room }}</span>
+                <span class="ibox ibox-warn">预计到岗 {{ U.arriveText(p.arrive_before) || '—' }}</span>
+              </div>
             </div>
             <span class="hm-go">查课</span>
           </li>
@@ -73,7 +72,12 @@ window.Views.HomeView = {
                   <span class="badge badge-warn" v-if="r.is_extra">计划外</span>
                   <span class="badge badge-warn" v-if="r.corrected_count">已修正</span>
                 </div>
-                <div class="hm-item-s">{{ hisLine(r) }}</div>
+                <div class="hm-item-s">{{ U.md(r.check_date) }} {{ U.weekdayCN(r.check_date) }} {{ U.periodText(r.period_from, r.period_to) }}</div>
+                <div class="mt8">
+                  <span class="ibox" :class="classOn(c) ? 'ibox-bad' : ''" v-for="(c, ci) in classParts(r)" :key="c + ci">{{ c }}</span>
+                  <span class="ibox ibox-pri" v-if="r.room">教室 {{ r.room }}</span>
+                  <span class="ibox ibox-warn" v-if="r.arrive_before">预计到岗 {{ U.arriveText(r.arrive_before) }}</span>
+                </div>
               </div>
               <span class="hm-att">{{ r.actual_count }}/{{ r.expected_count }}</span>
             </li>
@@ -85,21 +89,18 @@ window.Views.HomeView = {
       </template>
     </section>
 
-    <button class="btn btn-block mt12" @click="goMyRecords">查看我的历史记录</button>
-
-    <section class="card hm-panel">
+    <section class="card hm-panel" v-if="!isAdmin">
       <div class="hd"><h2>选课</h2><span class="tiny muted">本周已选 {{ weekPlanCount }} 节</span></div>
       <p class="hm-hint">周五下午 5 点开放下一周选课，工作日直接填结果。</p>
-      <button class="btn btn-primary btn-block" @click="goPlanNew">{{ isWeekend ? '选下周要查的课' : '新增查课计划' }}</button>
+      <button class="btn btn-danger btn-block mt8" v-if="returnedCount" @click="goReturned">
+        被打回的课 {{ returnedCount }} 节 · 查看并重新提交 ›
+      </button>
+      <button class="btn btn-change btn-block btn-lg mt8" @click="goMyPlans">更改已选课程</button>
+      <button class="btn btn-primary btn-block mt8" @click="goPlanNew">{{ isWeekend ? '选下周要查的课' : '新增查课计划' }}</button>
     </section>
 
-    <section class="card hm-panel">
-      <div class="hd"><h2>公告</h2><span class="tiny link" @click="showNotices = true">历史公告 ›</span></div>
-      <div v-if="latestNotice" class="hm-ann">{{ latestNotice.content }}</div>
-      <div v-else class="muted sm">暂无公告</div>
-    </section>
-
-    <button class="btn btn-block" @click="goSettings">设置</button>
+    <button class="btn btn-block mt12" v-if="!isAdmin" @click="goMyRecords">查看我的历史记录</button>
+    <button class="btn btn-block mt8" @click="goSettings">设置</button>
 
     <div class="mask mask-center" v-if="showHistory" @click.self="showHistory = false">
       <div class="sheet sheet-center">
@@ -112,7 +113,11 @@ window.Views.HomeView = {
                   {{ r.course_name }}
                   <span class="badge badge-warn" v-if="r.is_extra">计划外</span>
                 </div>
-                <div class="hm-item-s">{{ hisLine(r) }}</div>
+                <div class="hm-item-s">{{ U.md(r.check_date) }} {{ U.weekdayCN(r.check_date) }} {{ U.periodText(r.period_from, r.period_to) }}</div>
+                <div class="mt8">
+                  <span class="ibox" :class="classOn(c) ? 'ibox-bad' : ''" v-for="(c, ci) in classParts(r)" :key="c + ci">{{ c }}</span>
+                  <span class="ibox ibox-pri" v-if="r.room">教室 {{ r.room }}</span>
+                </div>
               </div>
               <span class="hm-att">{{ r.actual_count }}/{{ r.expected_count }}</span>
             </li>
@@ -122,24 +127,10 @@ window.Views.HomeView = {
         <button class="btn btn-block mt12" @click="showHistory = false">关闭</button>
       </div>
     </div>
-
-    <div class="mask mask-center" v-if="showNotices" @click.self="showNotices = false">
-      <div class="sheet sheet-center">
-        <h3>历史公告</h3>
-        <div v-if="notices.length">
-          <div class="hm-notice-item" v-for="n in notices" :key="n.id">
-            <div class="hm-notice-c">{{ n.content }}</div>
-            <div class="tiny muted">{{ n.author }} · {{ fmtTime(n.created_at) }}</div>
-          </div>
-        </div>
-        <div class="muted sm" v-else>暂无公告</div>
-        <button class="btn btn-block mt12" @click="showNotices = false">关闭</button>
-      </div>
-    </div>
   </div>`,
 
   data() {
-    return { U, loading: true, due: [], history: [], historyTotal: 0, notices: [], showNotices: false, showHistory: false, week: 0, weekPlanCount: 0 }
+    return { U, loading: true, due: [], history: [], historyTotal: 0, showHistory: false, week: 0, weekPlanCount: 0, returnedCount: 0 }
   },
   computed: {
     me() { return Store.store.me || {} },
@@ -147,49 +138,60 @@ window.Views.HomeView = {
     sem() { return Store.store.semester },
     semName() { return this.sem ? this.sem.name : '未设置学期' },
     todayText() { return U.md(U.today()) + ' ' + U.weekdayCN(U.today()) },
-    latestNotice() { return this.notices[0] || null },
     isWeekend() { return U.isWeekend(U.today()) },
     recentHistory() { return this.history.slice(0, 5) },
+    myClasses() {
+      const me = this.me || {}
+      return String(me.duty_classes || me.own_class || '').split(/[、,，/ ]+/).map((s) => s.trim()).filter(Boolean)
+    },
   },
   mounted() { this.load() },
   methods: {
     overdue(p) { return p.check_date < U.today() },
-    dueLine(p) {
-      const arrive = U.arriveText(p.arrive_before)
-      return [U.md(p.check_date), U.weekdayCN(p.check_date), U.periodText(p.period_from, p.period_to)]
-        .join(' ') + ' · ' + p.class_name + (p.room ? ' · ' + p.room : '') + (arrive ? ' · ' + arrive : '')
+    classParts(x) {
+      return String(x.class_name || '').split(/[、,，+ ]+/).map((s) => s.trim()).filter(Boolean)
     },
-    hisLine(r) {
-      const arrive = U.arriveText(r.arrive_before)
-      return [U.md(r.check_date), U.weekdayCN(r.check_date), U.periodText(r.period_from, r.period_to)]
-        .join(' ') + ' · ' + r.class_name + (arrive ? ' · ' + arrive : '')
-    },
+    classOn(c) { return this.myClasses.indexOf(c) >= 0 },
     goRecord(r) { this.showHistory = false; Store.nav('/record/' + r.id) },
     goMyRecords() { Store.nav('/my-records') },
-    fmtTime(t) { return U.dayTime(t) },
+    goMyPlans() { Store.nav('/my-plans') },
     goAdmin() { Store.nav('/admin') },
     goStats() { Store.nav('/class-stats') },
+    goReturned() { Store.nav('/my-returned') },
+    noteNeedsFill(p) { return String(p.note || '').indexOf('重新填报') >= 0 },
     goPlanNew() {
       if (this.isWeekend && this.week + 1 > Store.weekMax()) { U.toast('已到学期最后一周，无法再选下周'); return }
       Store.nav('/plan/new')
     },
     goExtra() { Store.nav('/fill/new') },
     goSettings() { Store.nav('/settings') },
-    fill(p) { Store.nav('/fill/' + p.id) },
+    fill(p) {
+      if (p.note && !this.noteNeedsFill(p)) Store.nav('/plan/' + p.id)
+      else Store.nav('/fill/' + p.id)
+    },
     async load() {
       this.week = Store.weekNow()
       try {
-        const [due, wk, notices, his] = await Promise.all([
+        const nextW = this.week + 1
+        const canNext = this.sem && nextW <= this.sem.total_weeks
+        const [due, wk, his, wkNext] = await Promise.all([
           Store.rpc('my_due', {}),
           this.sem ? Store.rpc('my_week', { p_week: this.week }) : Promise.resolve({ plans: [] }),
-          Store.rpc('notice_list', {}),
           Store.rpc('my_history', { p_limit: 60 }),
+          canNext ? Store.rpc('my_week', { p_week: nextW }) : Promise.resolve({ plans: [] }),
         ])
-        this.due = (due || []).slice().sort((a, b) => (a.check_date < b.check_date ? -1 : 1))
+        const seen = {}
+        this.due = (due || []).filter((p) => {
+          const k = [p.check_date, p.period_from, p.period_to, p.course_name, p.class_name].join('|')
+          if (seen[k]) return false
+          seen[k] = 1
+          return true
+        }).sort((a, b) => (a.check_date < b.check_date ? -1 : 1))
         this.weekPlanCount = (wk.plans || []).length
-        this.notices = notices || []
         this.history = (his && his.rows) || []
         this.historyTotal = (his && his.total) || 0
+        const allPlans = (wk.plans || []).concat((wkNext && wkNext.plans) || [])
+        this.returnedCount = allPlans.filter((p) => p.status === 'planned' && p.note).length
       } catch (e) {
         U.toast(U.errText(e), 'bad')
       } finally {
@@ -204,7 +206,7 @@ window.Views.PlanFormView = {
   <div class="shell">
     <div class="topbar">
       <div class="side"><button class="iconbtn back" @click="back">‹</button></div>
-      <h1>{{ id ? '修改我的查课' : '新增我的查课' }}</h1>
+      <h1>{{ id ? '更改我的选课' : '新增我的查课' }}</h1>
       <div class="side right"></div>
     </div>
 
@@ -265,11 +267,25 @@ window.Views.PlanFormView = {
       </div>
 
       <div class="field">
+        <div class="row between">
+          <label class="label">本节课总应到人数<i class="req">*</i></label>
+          <span class="tiny link" @click="toggleAutoTotal">{{ totalAuto ? '改为手动填写' : '按合计自动填入' }}</span>
+        </div>
+        <input class="input" v-model="form.total_expected" inputmode="numeric" :readonly="totalAuto"
+               @click="makeManual" @focus="makeManual" placeholder="填本节课所有被查班级的总人数">
+        <div class="hint" v-if="totalAuto">已按各班应到 + 其他自动汇总为 {{ classSum }} 人，修改班级人数会自动更新；点击输入框可直接手动填写。</div>
+        <div class="hint" v-else>各班应到人数 + 其他人数必须等于总应到人数，否则说明漏填了班级。</div>
+        <div class="hint bad" v-if="!totalAuto && totalWarn">{{ totalWarn }}</div>
+      </div>
+
+      <div class="field">
         <label class="label">
           被查班级<i class="req">*</i>
           <span class="cls-grades" v-if="gradeText">{{ gradeText }}</span>
         </label>
 
+        <div class="hint" style="margin:-2px 0 8px">请把这节课所有被查班级都填上（人数较多的班级也要填）。</div>
+        <div class="hint" v-if="dutyClassList.length">你的负责班级：{{ dutyClassList.join(' / ') }}。请优先填写这些班级；其他被查班级也可手动输入。</div>
         <div class="cls-row" v-for="(c, i) in form.classes" :key="i">
           <input class="input" v-model="c.code" maxlength="8" inputmode="numeric"
                  placeholder="如：13002605" @input="normCode(i)" :ref="'code' + i">
@@ -299,8 +315,8 @@ window.Views.PlanFormView = {
     <div class="actionbar">
       <div class="inner">
         <button class="btn grow" v-if="id && planStatus==='planned'" @click="cancelPlan">取消这节</button>
-        <button class="btn btn-primary grow btn-lg" :disabled="busy" @click="save">
-          {{ busy ? '保存中…' : '保存' }}
+        <button class="btn grow btn-lg" :class="id ? 'btn-change' : 'btn-primary'" :disabled="busy" @click="save">
+          {{ busy ? '保存中…' : (id ? '保存更改选课' : '保存') }}
         </button>
       </div>
     </div>
@@ -318,6 +334,7 @@ window.Views.PlanFormView = {
   data() {
     return {
       U, id: '', planStatus: 'planned', busy: false, err: '', doneShow: false, confirmSave: false,
+      totalAuto: false,
       weekTarget: 0,
       WDS: ['周一', '周二', '周三', '周四', '周五', '周六', '周日'],
       form: {
@@ -325,6 +342,7 @@ window.Views.PlanFormView = {
         course_name: '', teacher: '', room: '',
         classes: [{ code: '', expected: '' }],
         other_expected: '',
+        total_expected: '',
       },
     }
   },
@@ -346,6 +364,17 @@ window.Views.PlanFormView = {
       if (Math.abs(b - a) > 2) bad.push('跨度超过 2 节')
       return bad.length ? '请确认查课节次是否正确：' + bad.join('，') + '（仍能提交）' : ''
     },
+    classSum() {
+      const s = this.form.classes.reduce((sum, c) => sum + (Number(c.expected) || 0), 0)
+      return s + (Number(this.form.other_expected) || 0)
+    },
+    totalWarn() {
+      if (String(this.form.total_expected).trim() === '') return ''
+      if (Number(this.form.total_expected) !== this.classSum) {
+        return '各班应到 + 其他 = ' + this.classSum + '，与总应到 ' + this.form.total_expected + ' 不一致，请检查是否漏填班级'
+      }
+      return ''
+    },
     gradeText() {
       const map = { '26': '大一', '25': '大二', '24': '大三' }
       const order = ['大一', '大二', '大三']
@@ -358,6 +387,16 @@ window.Views.PlanFormView = {
       })
       set.sort((a, b) => order.indexOf(a) - order.indexOf(b))
       return set.join('、')
+    },
+    dutyClassList() {
+      const me = Store.store.me || {}
+      const raw = String(me.duty_classes || me.own_class || '')
+      return raw.split(/[、,，+ ]+/).map((s) => s.trim()).filter((s) => s && s !== '其他')
+    },
+  },
+  watch: {
+    classSum(v) {
+      if (this.totalAuto) this.form.total_expected = String(v)
     },
   },
   mounted() {
@@ -425,6 +464,11 @@ window.Views.PlanFormView = {
       if (!this.canAdd(i)) return
       this.addClass()
     },
+    toggleAutoTotal() {
+      this.totalAuto = !this.totalAuto
+      if (this.totalAuto) this.form.total_expected = String(this.classSum)
+    },
+    makeManual() { if (this.totalAuto) this.totalAuto = false },
     async load() {
       try {
         const d = await Store.rpc('my_due', {})
@@ -432,10 +476,13 @@ window.Views.PlanFormView = {
         if (!row) { U.toast('计划不存在或已填报', 'bad'); return Store.nav('/') }
         this.planStatus = row.status
         this.weekTarget = row.week_no
+        this.totalAuto = false
         const ws = U.weekStartOf(this.sem.start_monday, row.week_no)
         const cls = Array.isArray(row.classes) && row.classes.length
-          ? row.classes.map((x) => ({ code: x.code || '', expected: x.expected === 0 ? '0' : String(x.expected) }))
+          ? row.classes.slice().sort((a, b) => U.classCompare(a.code, b.code)).map((x) => ({ code: x.code || '', expected: x.expected === 0 ? '0' : String(x.expected) }))
           : [{ code: '', expected: '' }]
+        const other = String(row.other_expected || 0)
+        const sum = cls.reduce((s, c) => s + (Number(c.expected) || 0), 0) + (Number(other) || 0)
         this.form = {
           weekday: U.diffDays(ws, row.check_date) + 1,
           period_from: row.period_from, period_to: row.period_to,
@@ -443,7 +490,8 @@ window.Views.PlanFormView = {
           course_name: row.course_name,
           teacher: row.teacher || '', room: row.room || '',
           classes: cls,
-          other_expected: String(row.other_expected || 0),
+          other_expected: other,
+          total_expected: String(sum),
         }
       } catch (e) { U.toast(U.errText(e), 'bad') }
     },
@@ -462,6 +510,12 @@ window.Views.PlanFormView = {
       }
       if (String(this.form.other_expected).trim() === '') return '请填写其他类应到人数'
       if (Number(this.form.other_expected) < 0) return '其他类人数不能为负'
+      if (String(this.form.total_expected).trim() === '') return '请填写本节课总应到人数'
+      if (Number(this.form.total_expected) <= 0) return '总应到人数必须大于 0'
+      const sum = rows.reduce((s, c) => s + (Number(c.expected) || 0), 0) + (Number(this.form.other_expected) || 0)
+      if (Number(this.form.total_expected) !== sum) {
+        return '各班应到 + 其他 = ' + sum + '，与总应到 ' + this.form.total_expected + ' 不一致，请检查是否漏填班级'
+      }
       if (!this.form.period_from || !this.form.period_to) return '请选择节次：先点起始节，再点结束节'
       if (!this.form.arrive_before) return '请选择预计到岗时间'
       return ''
@@ -486,6 +540,7 @@ window.Views.PlanFormView = {
           room: this.form.room.trim(),
           classes: rows.map((c) => ({ code: c.code, expected: Number(c.expected) })),
           other_expected: Number(this.form.other_expected),
+          total_expected: Number(this.form.total_expected),
           arrive_before: this.form.arrive_before,
         }
         if (this.id) payload.id = this.id
@@ -508,7 +563,9 @@ window.Views.PlanFormView = {
       this.form.room = ''
       this.form.classes = [{ code: '', expected: '' }]
       this.form.other_expected = ''
+      this.form.total_expected = ''
       this.form.arrive_before = ''
+      this.totalAuto = false
       window.scrollTo(0, 0)
     },
     async cancelPlan() {
@@ -517,6 +574,179 @@ window.Views.PlanFormView = {
         await Store.rpc('plan_void', { p_id: Number(this.id) })
         U.toast('已取消')
         Store.nav('/')
+      } catch (e) { U.toast(U.errText(e), 'bad') }
+    },
+  },
+}
+
+window.Views.MyPlansView = {
+  template: `
+  <div class="shell">
+    <div class="topbar">
+      <div class="side"><button class="iconbtn back" @click="back">‹</button></div>
+      <h1>我的选课</h1>
+      <div class="side right"></div>
+    </div>
+
+    <div class="card mt12">
+      <div class="hd"><h2>本周选课</h2><span class="tiny muted">第 {{ week }} 周</span></div>
+      <div class="list" v-if="mergedCurrent.length">
+        <div class="litem" v-for="p in mergedCurrent" :key="p._key" style="cursor:default">
+          <div class="row between">
+            <div class="t1">{{ p.course_name }} <span class="muted sm" v-if="p.teacher">· {{ p.teacher }}</span></div>
+            <span class="badge" :class="planBadge(p)">{{ planText(p) }}</span>
+          </div>
+          <div class="t2">{{ U.md(p.check_date) }} {{ U.weekdayCN(p.check_date) }} {{ U.periodText(p.period_from, p.period_to) }}</div>
+          <div class="mt8">
+            <span class="ibox" :class="classOn(c) ? 'ibox-bad' : ''" v-for="(c, ci) in p._classes" :key="c + ci">{{ c }}</span>
+            <span class="ibox ibox-pri" v-if="p.room">教室 {{ p.room }}</span>
+            <span class="ibox ibox-warn" v-if="p.arrive_before">预计到岗 {{ U.arriveText(p.arrive_before) }}</span>
+          </div>
+          <div class="plan-note" v-if="p.note">{{ p.note }}</div>
+          <div class="row mt8" style="gap:8px;flex-wrap:wrap" v-if="p.status === 'planned'">
+            <button v-for="q in p._plans" :key="q.id" class="btn btn-sm btn-change" @click="edit(q)">{{ p._plans.length > 1 ? '改 ' + (q.class_name || '班级') : '更改选课' }}</button>
+          </div>
+          <div class="tiny muted mt8" v-else-if="p.status === 'submitted'">已查课，不能再改选课</div>
+        </div>
+      </div>
+      <div class="muted sm" v-else>本周还没有选课</div>
+    </div>
+
+    <div class="card mt12" v-if="nextWeek <= maxWeek">
+      <div class="hd"><h2>下周选课</h2><span class="tiny muted">第 {{ nextWeek }} 周</span></div>
+      <div class="list" v-if="mergedNext.length">
+        <div class="litem" v-for="p in mergedNext" :key="p._key" style="cursor:default">
+          <div class="row between">
+            <div class="t1">{{ p.course_name }} <span class="muted sm" v-if="p.teacher">· {{ p.teacher }}</span></div>
+            <span class="badge" :class="planBadge(p)">{{ planText(p) }}</span>
+          </div>
+          <div class="t2">{{ U.md(p.check_date) }} {{ U.weekdayCN(p.check_date) }} {{ U.periodText(p.period_from, p.period_to) }}</div>
+          <div class="mt8">
+            <span class="ibox" :class="classOn(c) ? 'ibox-bad' : ''" v-for="(c, ci) in p._classes" :key="c + ci">{{ c }}</span>
+            <span class="ibox ibox-pri" v-if="p.room">教室 {{ p.room }}</span>
+            <span class="ibox ibox-warn" v-if="p.arrive_before">预计到岗 {{ U.arriveText(p.arrive_before) }}</span>
+          </div>
+          <div class="plan-note" v-if="p.note">{{ p.note }}</div>
+          <div class="row mt8" style="gap:8px;flex-wrap:wrap" v-if="p.status === 'planned'">
+            <button v-for="q in p._plans" :key="q.id" class="btn btn-sm btn-change" @click="edit(q)">{{ p._plans.length > 1 ? '改 ' + (q.class_name || '班级') : '更改选课' }}</button>
+          </div>
+          <div class="tiny muted mt8" v-else-if="p.status === 'submitted'">已查课，不能再改选课</div>
+        </div>
+      </div>
+      <div class="muted sm" v-else>下周还没有选课</div>
+    </div>
+
+    <button class="btn btn-change btn-block btn-lg mt12" @click="newPlan">新增选课</button>
+  </div>`,
+
+  data() {
+    return { U, week: 0, nextWeek: 0, maxWeek: 18, currentPlans: [], nextPlans: [] }
+  },
+  computed: {
+    me() { return Store.store.me || {} },
+    myClasses() { return String(this.me.duty_classes || this.me.own_class || '').split(/[、,，/ ]+/).map((s) => s.trim()).filter(Boolean) },
+    mergedCurrent() { return this.merge(this.currentPlans) },
+    mergedNext() { return this.merge(this.nextPlans) },
+  },
+  mounted() {
+    this.week = Store.weekNow()
+    this.maxWeek = Store.weekMax()
+    this.nextWeek = this.week + 1
+    this.load()
+  },
+  methods: {
+    back() { history.length > 1 ? history.back() : Store.nav('/') },
+    merge(list) {
+      const map = {}
+      ;(list || []).forEach((p) => {
+        const key = [p.check_date, p.period_from, p.period_to, p.course_name].join('|')
+        if (!map[key]) map[key] = Object.assign({}, p, { _key: key, _plans: [p], _classes: this.planClasses(p) })
+        else {
+          const m = map[key]
+          m._plans.push(p)
+          this.planClasses(p).forEach((c) => { if (m._classes.indexOf(c) < 0) m._classes.push(c) })
+          if (!m.note && p.note) m.note = p.note
+          if (p.status === 'submitted') m.status = 'submitted'
+        }
+      })
+      return Object.keys(map).map((k) => map[k]).sort((a, b) => (a.check_date < b.check_date ? -1 : 1))
+    },
+    planClasses(p) {
+      const list = (Array.isArray(p.classes) && p.classes.length)
+        ? p.classes.map((c) => c.code)
+        : String(p.class_name || '').split(/[、,，+ ]+/).map((s) => s.trim())
+      return list.filter(Boolean)
+    },
+    classOn(c) { return this.myClasses.indexOf(c) >= 0 },
+    planText(p) {
+      if (p.status === 'void') return '已取消'
+      if (p.status === 'submitted') return '已查课'
+      return p.note ? '被打回' : '待查课'
+    },
+    planBadge(p) {
+      if (p.status === 'void') return ''
+      if (p.status === 'submitted') return 'badge-ok'
+      return p.note ? 'badge-bad' : 'badge-warn'
+    },
+    edit(p) { Store.nav('/plan/' + p.id) },
+    newPlan() { Store.nav('/plan/new?week=' + Math.min(this.nextWeek, this.maxWeek)) },
+    async load() {
+      if (!Store.store.semester) return
+      try {
+        const [wk, wkNext] = await Promise.all([
+          Store.rpc('my_week', { p_week: this.week }),
+          this.nextWeek <= this.maxWeek ? Store.rpc('my_week', { p_week: this.nextWeek }) : Promise.resolve({ plans: [] }),
+        ])
+        this.currentPlans = (wk.plans || []).slice().sort((a, b) => (a.check_date < b.check_date ? -1 : 1))
+        this.nextPlans = ((wkNext && wkNext.plans) || []).slice().sort((a, b) => (a.check_date < b.check_date ? -1 : 1))
+      } catch (e) {
+        U.toast(U.errText(e), 'bad')
+      }
+    },
+  },
+}
+
+window.Views.MyReturnedView = {
+  template: `
+  <div class="shell">
+    <div class="topbar">
+      <div class="side"><button class="iconbtn back" @click="back">‹</button></div>
+      <h1>被打回的课</h1>
+      <div class="side right"></div>
+    </div>
+
+    <div class="card mt12" v-if="items.length">
+      <div class="hd"><h2>待重新提交</h2><span class="tiny muted">{{ items.length }} 节</span></div>
+      <div class="list">
+        <div class="litem" v-for="p in items" :key="p.id" style="cursor:default">
+          <div class="row between">
+            <div class="t1">{{ p.course_name }} <span class="muted sm">· {{ p.class_name }}</span></div>
+            <span class="badge badge-bad">打回</span>
+          </div>
+          <div class="t2">{{ line(p) }}</div>
+          <div class="plan-note">{{ p.note }}</div>
+          <button class="btn btn-primary btn-block mt8" @click="handle(p)">{{ needFill(p) ? '修改并重新提交查课结果' : '修改并重新提交选课' }}</button>
+        </div>
+      </div>
+      <div class="tiny muted mt8">重新提交后，管理员端会标记「重交」。</div>
+    </div>
+    <div class="card mt12" v-else><div class="muted sm">没有被退回的课</div></div>
+  </div>`,
+  data() { return { U, items: [] } },
+  mounted() { this.load() },
+  methods: {
+    back() { history.length > 1 ? history.back() : Store.nav('/') },
+    line(p) {
+      const arrive = U.arriveText(p.arrive_before)
+      return [U.md(p.check_date), U.weekdayCN(p.check_date), U.periodText(p.period_from, p.period_to)]
+        .join(' ') + (p.room ? ' · ' + p.room : '') + (arrive ? ' · ' + arrive : '')
+    },
+    needFill(p) { return String(p.note || '').indexOf('重新填报') >= 0 },
+    handle(p) { Store.nav((this.needFill(p) ? '/fill/' : '/plan/') + p.id) },
+    async load() {
+      try {
+        const rows = await Store.rpc('my_due', {})
+        this.items = (rows || []).filter((p) => p.note).slice().sort((a, b) => (a.check_date < b.check_date ? -1 : 1))
       } catch (e) { U.toast(U.errText(e), 'bad') }
     },
   },

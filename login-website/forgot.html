@@ -1,93 +1,24 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#3056d3">
-<script>try{if(localStorage.getItem('demo_theme')==='dark')document.documentElement.setAttribute('data-theme','dark')}catch(e){}</script>
-<meta name="format-detection" content="telephone=no">
-<title>忘记密码</title>
-<link rel="icon" href="data:,">
-<link rel="stylesheet" href="app.css?v=20261101c">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="refresh" content="2;url=./index.html">
+  <title>忘记密码</title>
+  <style>
+    body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; background: #f5f6f8; color: #333; display: flex; align-items: center; justify-content: center; min-height: 100dvh; margin: 0; padding: 24px; box-sizing: border-box; }
+    .card { background: #fff; border-radius: 12px; padding: 28px 22px; max-width: 360px; width: 100%; box-shadow: 0 4px 16px rgba(0,0,0,.06); text-align: center; }
+    h1 { font-size: 18px; margin: 0 0 12px; }
+    p { font-size: 14px; line-height: 1.7; color: #666; margin: 0 0 8px; }
+    a { color: #3b82f6; text-decoration: none; font-size: 14px; }
+  </style>
 </head>
 <body>
-<div id="app">
-  <div class="shell" style="max-width:460px">
-    <div class="topbar">
-      <div class="side"><button class="iconbtn back" onclick="history.back()" aria-label="返回">‹</button></div>
-      <h1>忘记密码</h1>
-      <div class="side right">
-        <button class="iconbtn" data-theme-toggle onclick="App.toggleTheme()" title="切换深色模式" aria-label="切换深色模式">
-          <svg class="ic-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
-          <svg class="ic-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
-        </button>
-      </div>
-    </div>
-
-    <div class="card mt12">
-      <p class="sm ink2" style="margin-top:0">提交后由管理员审核，通过后密码会重置为你的学号，登录后需立即修改。</p>
-
-      <div class="formerr" id="err" style="display:none"></div>
-      <div class="okbox" id="ok" style="display:none"></div>
-
-      <div class="field">
-        <label class="label" for="name">姓名</label>
-        <input class="input" id="name" placeholder="你的姓名" maxlength="20">
-      </div>
-      <div class="field">
-        <label class="label" for="no">学号</label>
-        <input class="input" id="no" inputmode="numeric" placeholder="用于核对身份" maxlength="20">
-      </div>
-
-      <button class="btn btn-primary btn-block btn-lg" id="submitBtn" onclick="submitForgot()">提交重置申请</button>
-      <div class="center tiny muted mt12">管理员审核通过后，用「姓名 + 学号」重新登录</div>
-    </div>
+  <div class="card">
+    <h1>忘记密码</h1>
+    <p>自助找回功能已停用。</p>
+    <p>请联系管理员，在「成员管理」中将你的密码重置为学号，登录后按提示设置新密码。</p>
+    <p><a href="./index.html">返回登录</a></p>
   </div>
-</div>
-
-<script src="vendor/workbuddy-cloud-sdk.js?v=20261101c"></script>
-<script src="config.js?v=20261101c"></script>
-<script src="app.js?v=20261101c"></script>
-<script>
-function submitForgot() {
-  var errEl = document.getElementById('err')
-  var okEl = document.getElementById('ok')
-  errEl.style.display = 'none'
-  okEl.style.display = 'none'
-
-  var name = document.getElementById('name').value.trim()
-  var no = document.getElementById('no').value.trim()
-
-  if (!name) {
-    errEl.textContent = '请输入姓名'
-    errEl.style.display = 'block'
-    return
-  }
-  if (!no) {
-    errEl.textContent = '请输入学号'
-    errEl.style.display = 'block'
-    return
-  }
-
-  var btn = document.getElementById('submitBtn')
-  btn.disabled = true
-  btn.textContent = '提交中…'
-
-  // 提交重置申请（无需登录态）
-  App.forgot(name, no).then(function (d) {
-    btn.disabled = false
-    btn.textContent = '提交重置申请'
-    okEl.textContent = (d && d.already) ? '你已经提交过申请，请耐心等待管理员审核。' : '申请已提交，请等待管理员审核。'
-    okEl.style.display = 'block'
-    document.getElementById('name').value = ''
-    document.getElementById('no').value = ''
-  }).catch(function (e) {
-    btn.disabled = false
-    btn.textContent = '提交重置申请'
-    errEl.textContent = App.errText(e)
-    errEl.style.display = 'block'
-  })
-}
-</script>
 </body>
 </html>
