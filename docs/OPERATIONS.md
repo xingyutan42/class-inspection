@@ -1,9 +1,9 @@
-# 学风建设 · 课堂检查统计
+﻿# 学风建设 · 课堂检查统计
 
 学院学风建设课堂检查小组的内部工具。组员周末登记下周要查的课，工作日填查课结果（出勤 + 纪律问题）；管理员看进度、修正、导出 Excel 台账。
 
-- 线上地址：https://class-inspection-18694.app.workbuddy.host/
-- 应用 ID：`wbapp_rCBmTNpgoXHtbJq5Irai8s`（云数据库与站点发布共用这一个身份，勿更换）
+- 线上地址：https://your-app.example.host/
+- 应用 ID：`<你的应用 ID>`（云数据库与站点发布共用这一个身份，勿更换）
 
 ## 一、账号规则
 

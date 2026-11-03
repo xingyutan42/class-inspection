@@ -1,16 +1,20 @@
-# 平台工作区文件（本地数据，不入库）
+# 平台工作区文件（本地数据，不入库、不提交）
 .workbuddy/
 *.genie
 任务记忆导出_*.md
+.trae-html-share-packages/
+backup/
 
-# 真实人员数据（含个人信息，仅本地保留；仓库中提供 *.example 示例）
+# 真实人员数据（含个人信息，仅本地保留）
 counselor_map.json
 db/migrate-counselor-map.sql
+db/migrate-counselor-map-from-xlsx.sql
 
-# 真实云服务配置（指向生产环境，仅本地保留；仓库中提供 config.example.js）
+# 真实云服务配置（仅本地保留；仓库中提供 config.example.js）
 src/config.js
 login-website/config.js
 
 # 系统文件
 Thumbs.db
 .DS_Store
+node_modules/

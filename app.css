@@ -898,3 +898,7 @@ table.tb tr.clickable:hover { background: #fafbfd; }
 }
 .alpha-item { font-size: 10px; line-height: 13px; width: 16px; text-align: center; color: var(--pri); font-weight: 650; cursor: pointer; }
 .alpha-item.off { color: var(--muted); opacity: .3; font-weight: 400; }
+
+/* 草稿恢复提示条 */
+.draft-tip { background: rgba(214,158,46,.10); border: 1px solid rgba(214,158,46,.35); }
+[data-theme="dark"] .draft-tip { background: rgba(214,158,46,.12); }

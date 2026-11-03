@@ -68,5 +68,42 @@
     }
   }
 
-  window.IMG = { compress }
+  // 在图片底部叠加水印（时间 + 姓名），同时生成带水印的缩略图。
+  // 水印烧进像素，事后无法用旧图替换，用于证明照片属于本次提交。
+  function watermark(dataUrl, text) {
+    return new Promise((resolve, reject) => {
+      const im = new Image()
+      im.onload = () => {
+        try {
+          const w = im.naturalWidth || im.width
+          const h = im.naturalHeight || im.height
+          const canvas = document.createElement('canvas')
+          canvas.width = w
+          canvas.height = h
+          const ctx = canvas.getContext('2d')
+          ctx.drawImage(im, 0, 0, w, h)
+          const barH = Math.max(28, Math.round(h * 0.055))
+          ctx.fillStyle = 'rgba(0,0,0,0.42)'
+          ctx.fillRect(0, h - barH, w, barH)
+          const fs = Math.max(13, Math.round(w * 0.021))
+          ctx.font = '600 ' + fs + 'px -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif'
+          ctx.fillStyle = '#ffffff'
+          ctx.textBaseline = 'middle'
+          ctx.fillText(text, Math.round(fs * 0.8), h - barH / 2 + 1)
+          const full = canvas.toDataURL('image/jpeg', 0.9)
+          const tw = Math.min(320, w)
+          const th = Math.max(1, Math.round(h * tw / w))
+          const c2 = document.createElement('canvas')
+          c2.width = tw
+          c2.height = th
+          c2.getContext('2d').drawImage(canvas, 0, 0, tw, th)
+          resolve({ dataUrl: full, thumbDataUrl: c2.toDataURL('image/jpeg', 0.7) })
+        } catch (e) { reject(e) }
+      }
+      im.onerror = () => reject(new Error('照片水印失败'))
+      im.src = dataUrl
+    })
+  }
+
+  window.IMG = { compress, watermark }
 })()

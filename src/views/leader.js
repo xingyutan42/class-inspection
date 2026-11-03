@@ -564,7 +564,7 @@ window.Views.AdminHome = {
       this.photoLoading = true
       try {
         // 只取照片 id 与时间（不含缩略图，省流量）；点开某条时才拉图
-        const map = await Store.rpcCached('admin_week_photos', { p_week: this.week }, 300000) || {}
+        const map = await Store.rpcCached('admin_week_photos', { p_week: this.week }, 600000) || {}
         const out = {}
         this.records.forEach((r) => {
           const arr = map[String(r.id)] || []
@@ -596,13 +596,20 @@ window.Views.AdminHome = {
         const out = []
         for (const p of list) {
           let thumb = p.thumb || ''
-          const hit = window.PhotoCache ? await PhotoCache.get(p.id) : null
-          if (hit && hit.thumb) {
-            thumb = hit.thumb
-          } else if (thumb && window.PhotoCache) {
-            PhotoCache.put(p.id, { thumb: thumb, data: '', takenAt: p.taken_at || '' })
+          let full = p.data || ''
+          if (p.storage_path) {
+            // 新照片：原图在文件存储，取签名 URL 直接显示
+            const url = await Store.photoUrl(p, 600)
+            if (url) { thumb = url; full = url }
+          } else {
+            const hit = window.PhotoCache ? await PhotoCache.get(p.id) : null
+            if (hit && hit.thumb) {
+              thumb = hit.thumb
+            } else if (thumb && window.PhotoCache) {
+              PhotoCache.put(p.id, { thumb: thumb, data: '', takenAt: p.taken_at || '' })
+            }
           }
-          out.push({ id: p.id, thumb: thumb, taken_at: p.taken_at, created_at: p.created_at })
+          out.push({ id: p.id, thumb: thumb, data: full, taken_at: p.taken_at, created_at: p.created_at })
         }
         box.list = out
       } catch (e) {
@@ -656,7 +663,7 @@ window.Views.AdminHome = {
       this.photoLoading = true
       try {
         // 只取照片 id 与时间（不含缩略图，省流量）；点开某条时才拉图
-        const map = await Store.rpcCached('admin_week_photos', { p_week: this.week }, 300000) || {}
+        const map = await Store.rpcCached('admin_week_photos', { p_week: this.week }, 600000) || {}
         const out = {}
         this.records.forEach((r) => {
           const arr = map[String(r.id)] || []
@@ -681,8 +688,13 @@ window.Views.AdminHome = {
       this.photoMap[r.id] = { list: [], taken: '', created: '', open: true }
       try {
         const list = await Store.rpc('photo_list', { p_record_id: r.id }) || []
+        const rows = []
+        for (const p of list) {
+          const url = p.storage_path ? await Store.photoUrl(p, 600) : ''
+          rows.push({ id: p.id, thumb: url || p.thumb || '', data: url || '', taken_at: p.taken_at, created_at: p.created_at })
+        }
         this.photoMap[r.id] = {
-          list: list.map((p) => ({ id: p.id, thumb: p.thumb || '', taken_at: p.taken_at, created_at: p.created_at })),
+          list: rows,
           taken: list.map((p) => U.dayTime(p.taken_at)).filter(Boolean).join(' / '),
           created: list.map((p) => U.dayTime(p.created_at)).filter(Boolean).join(' / '),
           open: true,
@@ -705,9 +717,13 @@ window.Views.AdminHome = {
       this.photoLoading = true
       try {
         const d = await Store.rpc('photo_get', { p_id: ph.id })
-        ph.data = d.data
-        if (!ph.thumb && d.thumb) ph.thumb = d.thumb
-        if (window.PhotoCache) PhotoCache.put(ph.id, { thumb: ph.thumb, data: d.data })
+        if (d.storage_path) {
+          ph.data = await Store.photoUrl(d, 600)
+        } else {
+          ph.data = d.data
+          if (!ph.thumb && d.thumb) ph.thumb = d.thumb
+          if (window.PhotoCache) PhotoCache.put(ph.id, { thumb: ph.thumb, data: d.data })
+        }
         this.fullPhoto = ph
       } catch (e) { U.toast(U.errText(e), 'bad') } finally { this.photoLoading = false }
     },
@@ -734,7 +750,7 @@ window.Views.AdminHome = {
       this.loading = true
       try {
         // 一次请求拿回本周课检/备注/成员班级/重交/打回（原为 5 个请求）
-        const dash = await Store.rpcCached('admin_dashboard', { p_week: this.week }, 60000) || {}
+        const dash = await Store.rpcCached('admin_dashboard', { p_week: this.week }, 180000) || {}
         const d = dash.week || {}
         const notes = dash.notes || []
         const classes = dash.classes || null

@@ -1,4 +1,4 @@
-// 通用工具：日期 / 周次 / 节次 / 提示
+﻿// 通用工具：日期 / 周次 / 节次 / 提示
 (function () {
   const TZ = 'Asia/Shanghai'
   const WD = ['日', '一', '二', '三', '四', '五', '六']
@@ -121,11 +121,11 @@
     return sa.localeCompare(sb)
   }
 
+  // 完整日期时间，精确到分钟（如 2026-11-03 21:20）
   function shortTime(ts) {
     if (!ts) return ''
-    const d = new Date(ts)
-    const s = d.toLocaleString('zh-CN', { timeZone: TZ, hour12: false })
-    return s.replace(/\/20(\d\d)\//, '/$1/')
+    const d = new Date(ts).toLocaleString('sv-SE', { timeZone: TZ })
+    return d.slice(0, 16)
   }
 
   function dayTime(ts) {

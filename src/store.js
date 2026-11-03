@@ -105,6 +105,17 @@
     staff_list: 120000, semester_list: 120000, admin_user_classes: 120000,
     admin_week_photos: 300000,
   }
+  // 照片地址：新照片在文件存储（取签名 URL），老照片是 base64
+  async function photoUrl(p, ttl) {
+    if (p && p.storage_path && window.cloud && window.cloud.storage && window.cloud.storage.createSignedUrl) {
+      try {
+        const u = await window.cloud.storage.createSignedUrl(p.storage_path, ttl || 600)
+        if (u) return u
+      } catch (e) { /* 取不到签名就退回 base64 */ }
+    }
+    return (p && (p.data || p.thumb)) || ''
+  }
+
   function rpcCached(name, params, ttlMs) {
     const key = name + '|' + JSON.stringify(params || {})
     const hit = rpcCache.get(key)
@@ -219,7 +230,7 @@
   }
 
   window.Store = {
-    store, rpc, rpcCached, clearRpcCache, boot, refresh, login, logout, nav, syncRoute, setToken, weekNow, weekMax,
+    store, rpc, rpcCached, photoUrl, clearRpcCache, boot, refresh, login, logout, nav, syncRoute, setToken, weekNow, weekMax,
     applyTheme, toggleTheme,
   }
 })()

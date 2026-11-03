@@ -348,12 +348,13 @@ window.Views.AdminRecord = {
         const list = await Store.rpcCached('photo_list', { p_record_id: Number(this.rec.id) }, 300000) || []
         const out = []
         for (const p of list) {
-          const hit = window.PhotoCache ? await PhotoCache.get(p.id) : null
+          const signUrl = p.storage_path ? await Store.photoUrl(p, 600) : ''
+          const hit = p.storage_path ? null : (window.PhotoCache ? await PhotoCache.get(p.id) : null)
           out.push({
             id: p.id,
             created_at: p.created_at,
             taken_at: p.taken_at || null,
-            thumb: (hit && hit.thumb) || p.thumb || '',
+            thumb: signUrl || (hit && hit.thumb) || p.thumb || '',
             data: (hit && hit.data) || '',
           })
         }
@@ -375,9 +376,13 @@ window.Views.AdminRecord = {
       this.photoLoading = true
       try {
         const d = await Store.rpc('photo_get', { p_id: ph.id })
-        ph.data = d.data
-        if (!ph.thumb && d.thumb) ph.thumb = d.thumb
-        if (window.PhotoCache) PhotoCache.put(ph.id, { thumb: ph.thumb, data: d.data })
+        if (d.storage_path) {
+          ph.data = await Store.photoUrl(d, 600)
+        } else {
+          ph.data = d.data
+          if (!ph.thumb && d.thumb) ph.thumb = d.thumb
+          if (window.PhotoCache) PhotoCache.put(ph.id, { thumb: ph.thumb, data: d.data })
+        }
         this.fullPhoto = ph
       } catch (e) { U.toast(U.errText(e), 'bad') } finally { this.photoLoading = false }
     },

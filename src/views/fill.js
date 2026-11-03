@@ -91,7 +91,7 @@ window.Views.FillView = {
     <div class="topbar">
       <div class="side"><button class="iconbtn back" @click="back">‹</button></div>
       <h1>{{ editMode ? '修改查课结果' : '填写查课结果' }}</h1>
-      <div class="side right"></div>
+      <div class="side right"><button class="btn btn-sm" @click="saveDraft(false)">存草稿</button></div>
     </div>
 
     <div class="mask mask-center" v-if="err" @click.self="err = ''">
@@ -102,6 +102,17 @@ window.Views.FillView = {
       </div>
     </div>
 
+    <div class="card mt12 draft-tip" v-if="draftTip">
+      <div class="strong" style="color:var(--warn)">发现未提交的草稿（{{ draftTip.time }}）</div>
+      <div class="tiny muted mt8">{{ draftTip.text || '本机保存的填写内容' }}</div>
+      <div class="row mt8" style="gap:8px">
+        <button class="btn btn-sm btn-primary" @click="restoreDraft">恢复草稿</button>
+        <button class="btn btn-sm" @click="dropDraft">丢弃</button>
+      </div>
+    </div>
+
+    <div class="tiny muted mt8" v-if="draftSavedAt && !draftTip">草稿已保存在本机 · {{ draftSavedText }}</div>
+
     <div class="card mt12">
       <div class="hd">
         <h2>现场照片 <span class="badge badge-bad" v-if="!editMode">必填</span><span class="badge badge-pri" v-else>沿用原照片</span></h2>
@@ -111,7 +122,7 @@ window.Views.FillView = {
       <div class="tiny muted mb8" v-if="editMode">上次提交的照片已保留，<b>不用重新上传</b>；如需补充可再添加。</div>
       <div class="photo-grid">
         <div class="photo-item" v-for="(ph, i) in photos" :key="ph.key">
-          <img v-if="ph.preview" :src="ph.preview" alt="现场照片">
+          <img v-if="ph.preview || ph.thumbDataUrl" :src="ph.preview || ph.thumbDataUrl" alt="现场照片">
           <div v-else class="photo-ph">照片</div>
           <button type="button" class="photo-x" @click="removePhoto(i)">✕</button>
         </div>
@@ -380,7 +391,7 @@ window.Views.FillView = {
         '老师讲课认真，条理清晰，关注学生状态，积极与学生互动。',
         '老师上课重点突出，大部分学生上课积极融入课堂。',
       ],
-      isExtra: false, busy: false, err: '', photos: [],
+      isExtra: false, busy: false, err: '', photos: [], draftTip: null, draftSavedAt: 0,
       plan: null,
       // 被打回后重新编辑：editRec 为原记录，照片沿用不重传
       editRec: null, editPhotoCount: 0,
@@ -481,18 +492,88 @@ window.Views.FillView = {
       if (need.some((k) => !this.confirmed[k])) return false
       return true
     },
+    // ---------- 草稿定位与展示 ----------
+    draftKey() {
+      const uid = (Store.store.me && Store.store.me.id) || 0
+      const pid = this.plan && this.plan.id ? this.plan.id : 0
+      const extra = [this.form.check_date, this.form.period_from, this.form.period_to, this.form.course_name].join('|')
+      return window.Draft ? Draft.keyOf(uid, pid, extra) : ''
+    },
+    draftText() {
+      const f = this.form
+      return [U.md(f.check_date), U.periodText(f.period_from, f.period_to), f.course_name].filter(Boolean).join(' · ')
+    },
+    draftSavedText() {
+      return this.draftSavedAt ? U.shortTime(new Date(this.draftSavedAt).toISOString()) : ''
+    },
   },
   watch: {
     'form.absent_count'(v) { this.syncStudents('absent', v) },
     'form.leave_count'(v) { this.syncStudents('leave', v) },
+    form: { deep: true, handler() { this.autoSaveDraft() } },
   },
   mounted() {
     const p = this.$root.route.params
     if (p.planId) this.loadPlan(p.planId)
-    else { this.isExtra = true; this.form.check_date = U.today() }
+    else { this.isExtra = true; this.form.check_date = U.today(); this.checkDraft() }
   },
   methods: {
     back() { history.length > 1 ? history.back() : Store.nav('/') },
+    // ---------- 草稿：本机自动保存，不请求云端 ----------
+    autoSaveDraft() {
+      if (this._draftTimer) clearTimeout(this._draftTimer)
+      this._draftTimer = setTimeout(() => { this.saveDraft(true) }, 1500)
+    },
+    async saveDraft(silent) {
+      if (!window.Draft) return
+      const key = this.draftKey
+      if (!key) return
+      const photos = (this.photos || []).filter((p) => !p.saved && p.dataUrl).map((p) => ({
+        key: p.key, dataUrl: p.dataUrl, thumbDataUrl: p.thumbDataUrl || '', kb: p.kb, takenAt: p.takenAt || '',
+      }))
+      const ok = await Draft.save(key, {
+        userId: (Store.store.me && Store.store.me.id) || 0,
+        planId: (this.plan && this.plan.id) || 0,
+        form: JSON.parse(JSON.stringify(this.form)),
+        photos: photos,
+        meta: { text: this.draftText },
+      })
+      if (ok) {
+        this.draftSavedAt = Date.now()
+        if (silent === false) U.toast('草稿已保存在本机')
+      } else if (silent === false) {
+        U.toast('草稿保存失败（浏览器存储不可用）', 'bad')
+      }
+    },
+    async checkDraft() {
+      if (!window.Draft) return
+      const d = await Draft.get(this.draftKey)
+      if (!d) { this.draftTip = null; return }
+      this.draftTip = {
+        time: U.shortTime(new Date(Number(d.savedAt) || Date.now()).toISOString()),
+        text: (d.meta && d.meta.text) || '',
+      }
+    },
+    async restoreDraft() {
+      if (!window.Draft) return
+      const d = await Draft.get(this.draftKey)
+      if (!d) { this.draftTip = null; return }
+      Object.assign(this.form, d.form || {})
+      if (Array.isArray(d.photos)) {
+        this.photos = d.photos.map((p, i) => ({
+          key: p.key || ('d' + Date.now() + i), preview: '', dataUrl: p.dataUrl || '',
+          thumbDataUrl: p.thumbDataUrl || '', kb: p.kb || 0, saved: false, takenAt: p.takenAt || '',
+        }))
+      }
+      this.draftTip = null
+      this.draftSavedAt = Number(d.savedAt) || 0
+      U.toast('草稿已恢复')
+    },
+    async dropDraft() {
+      if (window.Draft) await Draft.del(this.draftKey)
+      this.draftTip = null
+      U.toast('草稿已丢弃')
+    },
     setPeriod(p) { this.form.period_from = p[0]; this.form.period_to = p[1] },
     tagsForPayload() {
       const list = this.form.discipline_tags.slice()
@@ -534,6 +615,7 @@ window.Views.FillView = {
           const redo = await Store.rpcCached('record_of_plan', { p_plan_id: row.id })
           if (redo && redo.record) this.applyReturnedRecord(redo.record, Number(redo.photo_count) || 0)
         } catch (e2) { /* 查询失败按新填处理 */ }
+        await this.checkDraft()
       } catch (e) { U.toast(U.errText(e), 'bad'); Store.nav('/') }
     },
     applyReturnedRecord(rec, photoCount) {
@@ -579,13 +661,22 @@ window.Views.FillView = {
         const name = String(f.name || '').toLowerCase()
         if (f.type && f.type.indexOf('image/') !== 0 && !/\.(heic|heif|jpg|jpeg|png|webp|gif)$/.test(name)) continue
         try {
-          const out = await IMG.compress(f, { maxKB: 500, maxEdge: 1800 })
+          const out = await IMG.compress(f, { maxKB: 300, maxEdge: 1500 })
           const dataUrl = await blobToDataUrl(out.blob)
           const th = await IMG.compress(f, { maxKB: 25, maxEdge: 320 })
           const thumbDataUrl = await blobToDataUrl(th.blob)
+          // 水印：时间（精确到分钟）+ 检课人，烧进像素，事后无法用旧图替换
+          let finalUrl = dataUrl
+          let finalThumb = thumbDataUrl
+          try {
+            const me = (Store.store.me && Store.store.me.name) || ''
+            const stamp = U.shortTime(new Date().toISOString()) + (me ? ' · ' + me : '')
+            const wm = await IMG.watermark(dataUrl, stamp)
+            if (wm && wm.dataUrl) { finalUrl = wm.dataUrl; finalThumb = wm.thumbDataUrl || thumbDataUrl }
+          } catch (e3) { /* 水印失败按原图提交，不影响主流程 */ }
           this.photos.push({
-            key: 'n' + Date.now() + Math.random(), preview: out.preview,
-            dataUrl: dataUrl, thumbDataUrl: thumbDataUrl, kb: out.kb, saved: false,
+            key: 'n' + Date.now() + Math.random(), preview: finalUrl || out.preview,
+            dataUrl: finalUrl, thumbDataUrl: finalThumb, kb: out.kb, saved: false,
             takenAt: f.lastModified ? new Date(f.lastModified).toISOString() : '',
           })
         } catch (err) {
@@ -598,7 +689,15 @@ window.Views.FillView = {
       const ph = this.photos[i]
       if (!ph) return
       if (ph.saved && ph.id) {
-        try { await Store.rpc('photo_delete', { p_id: ph.id }); Store.clearRpcCache('photo_times') }
+        try {
+          const d = await Store.rpc('photo_delete', { p_id: ph.id })
+          // 同步删除文件存储里的原图，避免残留占空间
+          const sp = (d && d.storage_path) || ''
+          if (sp && window.cloud && window.cloud.storage && window.cloud.storage.remove) {
+            try { await window.cloud.storage.remove([sp]) } catch (e6) { /* 残留不影响使用 */ }
+          }
+          Store.clearRpcCache('photo_times')
+        }
         catch (e) { U.toast(U.errText(e), 'bad'); return }
       }
       this.photos.splice(i, 1)
@@ -706,6 +805,7 @@ window.Views.FillView = {
           } else {
             U.toast('已修改并重新提交')
           }
+          if (window.Draft) Draft.del(this.draftKey)
           Store.clearRpcCache()
           Store.nav('/')
           return
@@ -717,6 +817,7 @@ window.Views.FillView = {
         const fail = await this.uploadPhotos(rec.id)
         if (fail) U.toast('查课成功，但有 ' + fail + ' 张照片未上传', 'bad')
         else U.toast('查课成功')
+        if (window.Draft) Draft.del(this.draftKey)
         Store.clearRpcCache()
         Store.nav('/')
       } catch (e) {
@@ -730,7 +831,11 @@ window.Views.FillView = {
       for (const ph of this.photos) {
         if (ph.saved) continue
         try {
-          const params = { p_record_id: recId, p_data: ph.dataUrl, p_mime: 'image/jpeg', p_thumb: ph.thumbDataUrl || '' }
+          // 照片以 base64 存库（文件存储需 SDK 登录态，当前自建账号体系不可用，已实测）
+          const params = {
+            p_record_id: recId, p_mime: 'image/jpeg', p_thumb: ph.thumbDataUrl || '',
+            p_data: ph.dataUrl, p_bytes: Math.round((ph.kb || 0) * 1024),
+          }
           if (ph.takenAt) params.p_taken_at = ph.takenAt
           const r = await Store.rpc('photo_add', params)
           ph.saved = true

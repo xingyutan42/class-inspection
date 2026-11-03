@@ -175,7 +175,7 @@ window.Views.HomeView = {
       this.week = Store.weekNow()
       try {
         // 一次请求拿回 待填 + 本周 + 下周 + 历史（原为 4 个请求）
-        const home = await Store.rpcCached('my_home', {}, 30000)
+        const home = await Store.rpcCached('my_home', {}, 60000)
         const due = home.due || []
         const wk = home.week || { plans: [] }
         const wkNext = home.next || { plans: [] }
@@ -207,7 +207,7 @@ window.Views.PlanFormView = {
     <div class="topbar">
       <div class="side"><button class="iconbtn back" @click="back">‹</button></div>
       <h1>{{ id ? '更改我的选课' : '新增我的查课' }}</h1>
-      <div class="side right"></div>
+      <div class="side right"><button class="btn btn-sm" @click="saveDraft(false)">存草稿</button></div>
     </div>
 
     <div class="mask mask-center" v-if="err" @click.self="err = ''">
@@ -217,6 +217,17 @@ window.Views.PlanFormView = {
         <button class="btn btn-primary btn-block" @click="err = ''">知道了</button>
       </div>
     </div>
+
+    <div class="card mt12 draft-tip" v-if="draftTip">
+      <div class="strong" style="color:var(--warn)">发现未提交的草稿（{{ draftTip.time }}）</div>
+      <div class="tiny muted mt8">{{ draftTip.text || '本机保存的填写内容' }}</div>
+      <div class="row mt8" style="gap:8px">
+        <button class="btn btn-sm btn-primary" @click="restoreDraft">恢复草稿</button>
+        <button class="btn btn-sm" @click="dropDraft">丢弃</button>
+      </div>
+    </div>
+
+    <div class="tiny muted mt8" v-if="draftSavedAt && !draftTip">草稿已保存在本机 · {{ draftSavedText }}</div>
 
     <div class="card mt12">
       <div class="hd"><h2>课检时间</h2><span class="tiny muted">第 {{ weekTarget }} 周</span></div>
@@ -333,7 +344,7 @@ window.Views.PlanFormView = {
 
   data() {
     return {
-      U, id: '', planStatus: 'planned', busy: false, err: '', doneShow: false, confirmSave: false,
+      U, id: '', planStatus: 'planned', busy: false, err: '', doneShow: false, confirmSave: false, draftTip: null, draftSavedAt: 0,
       totalAuto: false,
       weekTarget: 0,
       WDS: ['周一', '周二', '周三', '周四', '周五', '周六', '周日'],
@@ -393,11 +404,25 @@ window.Views.PlanFormView = {
       const raw = String(me.duty_classes || me.own_class || '')
       return raw.split(/[、,，+ ]+/).map((s) => s.trim()).filter((s) => s && s !== '其他')
     },
+    draftKey() {
+      const uid = (Store.store.me && Store.store.me.id) || 0
+      if (!window.Draft) return ''
+      return this.id ? Draft.keyOf(uid, this.id, '') : Draft.keyOf(uid, 0, 'plan|' + this.weekTarget)
+    },
+    draftText() {
+      const f = this.form
+      const wd = this.WDS[(Number(f.weekday) || 1) - 1]
+      return ['第' + (this.weekTarget || '?') + '周', wd, U.periodText(f.period_from, f.period_to), f.course_name].filter(Boolean).join(' ')
+    },
+    draftSavedText() {
+      return this.draftSavedAt ? U.shortTime(new Date(this.draftSavedAt).toISOString()) : ''
+    },
   },
   watch: {
     classSum(v) {
       if (this.totalAuto) this.form.total_expected = String(v)
     },
+    form: { deep: true, handler() { this.autoSaveDraft() } },
   },
   mounted() {
     this.id = this.$root.route.params.id || ''
@@ -405,10 +430,56 @@ window.Views.PlanFormView = {
     const q = this.$root.route.query
     this.weekTarget = q.week ? Math.min(Number(q.week), max) : Math.min(Store.weekNow() + 1, max)
     this.form.weekday = U.diffDays(U.mondayOf(U.today()), U.today()) + 1
-    if (this.id) this.load()
+    if (this.id) this.load(); else this.checkDraft()
   },
   methods: {
     back() { history.length > 1 ? history.back() : Store.nav('/') },
+    // ---------- 草稿：本机自动保存，不请求云端 ----------
+    autoSaveDraft() {
+      if (this._draftTimer) clearTimeout(this._draftTimer)
+      this._draftTimer = setTimeout(() => { this.saveDraft(true) }, 1500)
+    },
+    async saveDraft(silent) {
+      if (!window.Draft) return
+      const key = this.draftKey
+      if (!key) return
+      const ok = await Draft.save(key, {
+        userId: (Store.store.me && Store.store.me.id) || 0,
+        planId: this.id || 0,
+        form: JSON.parse(JSON.stringify(this.form)),
+        photos: [],
+        meta: { text: this.draftText },
+      })
+      if (ok) {
+        this.draftSavedAt = Date.now()
+        if (silent === false) U.toast('草稿已保存在本机')
+      } else if (silent === false) {
+        U.toast('草稿保存失败（浏览器存储不可用）', 'bad')
+      }
+    },
+    async checkDraft() {
+      if (!window.Draft) return
+      const d = await Draft.get(this.draftKey)
+      if (!d) { this.draftTip = null; return }
+      this.draftTip = {
+        time: U.shortTime(new Date(Number(d.savedAt) || Date.now()).toISOString()),
+        text: (d.meta && d.meta.text) || '',
+      }
+    },
+    async restoreDraft() {
+      if (!window.Draft) return
+      const d = await Draft.get(this.draftKey)
+      if (!d) { this.draftTip = null; return }
+      Object.assign(this.form, d.form || {})
+      this.draftTip = null
+      this.draftSavedAt = Number(d.savedAt) || 0
+      U.toast('草稿已恢复')
+    },
+    async dropDraft() {
+      if (window.Draft) await Draft.del(this.draftKey)
+      this.draftTip = null
+      U.toast('草稿已丢弃')
+    },
     setPeriod(p) { this.form.period_from = p[0]; this.form.period_to = p[1] },
     pickPeriod(n) {
       const a = Number(this.form.period_from)
@@ -494,6 +565,7 @@ window.Views.PlanFormView = {
           total_expected: String(sum),
         }
       } catch (e) { U.toast(U.errText(e), 'bad') }
+      this.checkDraft()
     },
     check() {
       if (!this.sem) return '尚未设置学期，请联系管理员'
@@ -546,6 +618,7 @@ window.Views.PlanFormView = {
         }
         if (this.id) payload.id = this.id
         const row = await Store.rpc('plan_save', { p_payload: payload })
+        if (window.Draft) Draft.del(this.draftKey)
         U.toast('已保存到第 ' + row.week_no + ' 周')
         Store.clearRpcCache()
         if (this.id) Store.nav('/')
