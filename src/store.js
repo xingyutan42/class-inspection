@@ -92,6 +92,36 @@
     return res.data
   }
 
+  // ---------- 轻量读缓存：管理员端切页/切周时复用，减少云端请求 ----------
+  const rpcCache = new Map()
+  // 各读接口的默认缓存时长（毫秒）；成员端数据要求更实时，TTL 更短
+  const CACHE_TTL = {
+    my_week: 20000, my_due: 20000, my_records: 20000, my_history: 60000,
+    record_get: 20000, plan_get: 20000, record_of_plan: 20000,
+    photo_times: 300000, photo_list: 300000,
+    class_stats: 60000, class_stats_week: 60000,
+    admin_week: 60000, admin_plan_notes: 60000, admin_week_resubmits: 60000,
+    admin_returned: 30000, admin_record_get: 30000,
+    staff_list: 120000, semester_list: 120000, admin_user_classes: 120000,
+    admin_week_photos: 300000,
+  }
+  function rpcCached(name, params, ttlMs) {
+    const key = name + '|' + JSON.stringify(params || {})
+    const hit = rpcCache.get(key)
+    const ttl = ttlMs == null ? (CACHE_TTL[name] == null ? 60000 : CACHE_TTL[name]) : ttlMs
+    if (hit && Date.now() - hit.t < ttl) {
+      try { return Promise.resolve(JSON.parse(hit.json)) } catch (e) { rpcCache.delete(key) }
+    }
+    return rpc(name, params).then((v) => {
+      try { rpcCache.set(key, { t: Date.now(), json: JSON.stringify(v) }) } catch (e) { /* 不可序列化则跳过缓存 */ }
+      return v
+    })
+  }
+  function clearRpcCache(prefix) {
+    if (!prefix) { rpcCache.clear(); return }
+    Array.from(rpcCache.keys()).forEach((k) => { if (k.indexOf(prefix) === 0) rpcCache.delete(k) })
+  }
+
   // ---------- 路由 ----------
   function parseHash() {
     const raw = location.hash.replace(/^#/, '') || '/'
@@ -122,7 +152,7 @@
     } else if (seg[0] === 'record') {
       name = 'record'; params.id = seg[1]
     } else if (seg[0] === 'admin') {
-      if (seg.length === 1) name = 'adminHome'
+      if (seg.length === 1) name = 'adminChecks'
       else if (seg[1] === 'checks') name = 'adminChecks'
       else if (seg[1] === 'plans') {
         if (seg[2]) { name = 'adminPlan'; params.id = seg[2] } else name = 'adminChecks'
@@ -131,6 +161,7 @@
       else if (seg[1] === 'members') name = 'adminMembers'
       else if (seg[1] === 'semesters') name = 'adminSemesters'
       else if (seg[1] === 'export') name = 'adminExport'
+      else if (seg[1] === 'returned') name = 'adminReturned'
     }
     return { name, params, query }
   }
@@ -164,6 +195,7 @@
   async function login(name, pwd) {
     const d = await rpc('app_login', { p_name: name, p_password: pwd }, true)
     setToken(d.token)
+    clearRpcCache()
     await refresh()
     return d
   }
@@ -171,6 +203,7 @@
   async function logout() {
     try { await rpc('app_logout') } catch (e) { /* ignore */ }
     setToken('')
+    clearRpcCache()
     store.me = null
     store.isAdmin = false
     nav('/login')
@@ -186,7 +219,7 @@
   }
 
   window.Store = {
-    store, rpc, boot, refresh, login, logout, nav, syncRoute, setToken, weekNow, weekMax,
+    store, rpc, rpcCached, clearRpcCache, boot, refresh, login, logout, nav, syncRoute, setToken, weekNow, weekMax,
     applyTheme, toggleTheme,
   }
 })()

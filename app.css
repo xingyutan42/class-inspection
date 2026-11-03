@@ -151,6 +151,7 @@ body {
   border: 1px solid var(--line); margin: 0 6px 4px 0;
   background: var(--card); color: var(--ink-2); white-space: nowrap;
 }
+.ibox-muted { background: var(--bg); color: var(--muted); }
 .ibox-pri { background: var(--pri-soft); color: var(--pri); border-color: rgba(48, 86, 211, .28); }
 .ibox-ok { background: var(--ok-soft); color: var(--ok); border-color: rgba(18, 133, 91, .28); }
 .ibox-warn { background: var(--warn-soft); color: var(--warn); border-color: rgba(180, 83, 9, .28); }
@@ -496,6 +497,12 @@ table.tb tr.clickable:hover { background: #fafbfd; }
 .textarea-xs { min-height: 35px; }
 
 .hm-hint { font-size: 13px; color: var(--muted); margin: 0 0 12px; line-height: 1.6; }
+
+/* 选课卡片顶部信息框 */
+.hm-infobox {
+  border: 1px solid var(--line); background: var(--bg);
+  border-radius: 11px; padding: 10px 12px; margin: 2px 0 12px;
+}
 
 .hm-foot { margin-top: 4px; }
 .hm-notes { margin-top: 16px; }
@@ -869,3 +876,25 @@ table.tb tr.clickable:hover { background: #fafbfd; }
   flex: 1; min-width: 0; display: flex; flex-direction: column;
   justify-content: center; gap: 3px;
 }
+
+/* 打回跟踪列表项 */
+.rv-item { padding: 12px 0; border-top: 1px solid var(--line); cursor: pointer; }
+.rv-item:first-of-type { border-top: 0; }
+.rv-item:active { opacity: .7; }
+
+/* 旷课 / 请假名单 */
+.stu-list { background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.stu-line { line-height: 1.9; }
+.stu-no { display: inline-block; min-width: 20px; color: var(--muted); }
+
+/* A-Z 成员字母索引 */
+.alpha-index {
+  position: fixed; right: 3px; top: 50%; transform: translateY(-50%);
+  display: flex; flex-direction: column; align-items: center; gap: 1px;
+  padding: 7px 3px; border-radius: 12px;
+  background: var(--card); border: 1px solid var(--line);
+  box-shadow: 0 4px 14px rgba(0,0,0,.10); z-index: 30;
+  touch-action: none; user-select: none;
+}
+.alpha-item { font-size: 10px; line-height: 13px; width: 16px; text-align: center; color: var(--pri); font-weight: 650; cursor: pointer; }
+.alpha-item.off { color: var(--muted); opacity: .3; font-weight: 400; }

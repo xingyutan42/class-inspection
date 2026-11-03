@@ -48,6 +48,7 @@
         id: key,
         thumb: (entry && entry.thumb) || '',
         data: (entry && entry.data) || '',
+        takenAt: (entry && entry.takenAt) || '',
         at: Date.now(),
       }))
       trim()

@@ -25,6 +25,7 @@
           adminHome: 'admin-home', adminChecks: 'admin-checks', adminPlan: 'admin-plan-edit',
           adminRecord: 'admin-record', adminMembers: 'admin-members',
           adminSemesters: 'admin-semesters', adminExport: 'admin-export',
+          adminReturned: 'admin-returned',
         }
         const target = map[r] || 'home-view'
         if (r.indexOf('admin') === 0 && !store.isAdmin) return 'home-view'
@@ -33,8 +34,7 @@
       tabs() {
         if (!store.isAdmin) return []
         return [
-          { href: '#/admin', icon: 'users', t: '成员', match: ['adminHome'] },
-          { href: '#/admin/checks', icon: 'list', t: '课检', match: ['adminChecks', 'adminRecord', 'adminPlan'] },
+          { href: '#/admin/checks', icon: 'list', t: '课检', match: ['adminChecks', 'adminHome', 'adminRecord', 'adminPlan'] },
           { href: '#/me', icon: 'me', t: '我的', match: ['me', 'change', 'adminMembers'] },
         ]
       },

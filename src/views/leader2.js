@@ -18,15 +18,28 @@ const PY_INITIAL = {
   '严':'Y','施':'S','牛':'N','洪':'H','龚':'G','汤':'T','戴':'D','侯':'H','孟':'M','龙':'L',
 }
 function pyInitial(name) {
-  const c = (name || '').trim().charAt(0)
+  const c = String(name == null ? '' : name).trim().charAt(0)
   return PY_INITIAL[c] || '#'
 }
 
 const FIELD_LABELS = {
-  expected_count: '应到', actual_count: '实到', late_count: '迟到',
+  expected_count: '应到', actual_count: '实到',
   absent_count: '旷课', leave_count: '请假', discipline_tags: '纪律问题', discipline_note: '课程主要内容',
   remark: '检查备注', course_name: '课程', class_name: '班级', room: '教室', teacher: '任课老师',
   check_date: '查课日期', period_from: '节次起', period_to: '节次止',
+  teacher_status: '教师上课情况', phone_count: '玩手机', sleep_count: '睡觉',
+  phone_10: '10分钟玩手机', sleep_10: '10分钟睡觉', phone_30: '30分钟玩手机', sleep_30: '30分钟睡觉',
+  teacher_score: '老师评分', student_score: '学生评分',
+  absent_students: '旷课名单', leave_students: '请假名单',
+}
+// 留痕展示：数组（含名单对象）转可读文本
+function fieldText(v) {
+  if (Array.isArray(v)) {
+    return v.map((x) => (x && typeof x === 'object')
+      ? ((x.cls || '') + (x.name ? ('班 ' + x.name) : ''))
+      : String(x)).filter(Boolean).join('、')
+  }
+  return v === null || v === undefined ? '' : String(v)
 }
 
 window.Views.AdminRecord = {
@@ -75,23 +88,36 @@ window.Views.AdminRecord = {
     </div>
 
     <div class="card">
-      <div class="hd"><h2>出勤</h2><span class="tiny muted">出勤率 {{ U.rate(rec.actual_count, rec.expected_count) || '—' }}</span></div>
+      <div class="hd"><h2>课堂</h2></div>
       <div class="stat-grid">
         <div class="stat"><div class="n">{{ rec.expected_count }}</div><div class="t">应到</div></div>
         <div class="stat ok"><div class="n">{{ rec.actual_count }}</div><div class="t">实到</div></div>
+        <div class="stat" :class="attendanceOk ? 'ok' : 'warn'"><div class="n" style="font-size:21px">{{ U.rate(rec.actual_count, rec.expected_count) || '—' }}</div><div class="t">出勤率</div></div>
         <div class="stat warn"><div class="n">{{ rec.absent_count }}</div><div class="t">旷课</div></div>
+        <div class="stat"><div class="n">{{ rec.leave_count || 0 }}</div><div class="t">请假</div></div>
+        <div class="stat" :class="rec.phone_count ? 'warn' : ''"><div class="n">{{ rec.phone_count || 0 }}</div><div class="t">玩手机</div></div>
+        <div class="stat" :class="rec.sleep_count ? 'warn' : ''"><div class="n">{{ rec.sleep_count || 0 }}</div><div class="t">睡觉</div></div>
+        <div class="stat" :class="rec.phone_10 ? 'warn' : ''"><div class="n">{{ rec.phone_10 || 0 }}</div><div class="t">10分钟玩手机</div></div>
+        <div class="stat" :class="rec.sleep_10 ? 'warn' : ''"><div class="n">{{ rec.sleep_10 || 0 }}</div><div class="t">10分钟睡觉</div></div>
+        <div class="stat" :class="rec.phone_30 ? 'warn' : ''"><div class="n">{{ rec.phone_30 || 0 }}</div><div class="t">30分钟玩手机</div></div>
+        <div class="stat" :class="rec.sleep_30 ? 'warn' : ''"><div class="n">{{ rec.sleep_30 || 0 }}</div><div class="t">30分钟睡觉</div></div>
       </div>
-      <div class="row between tiny muted mt12">
-        <span>迟到 {{ rec.late_count }}</span><span>请假 {{ rec.leave_count }}</span>
+      <div class="stu-list mt12" v-if="(rec.absent_count || 0) > 0 || (rec.absent_students || []).length">
+        <div class="tiny muted mb8">旷课名单（{{ rec.absent_count || 0 }} 人）</div>
+        <div class="sm stu-line" v-for="(s2, i) in (rec.absent_students || [])" :key="'ra' + i">
+          <span class="stu-no">{{ i + 1 }}</span>{{ s2.cls ? s2.cls + '班 ' : '' }}{{ s2.name }}
+        </div>
+        <div class="sm muted" v-if="!(rec.absent_students || []).length">未填写名单</div>
       </div>
-    </div>
 
-    <div class="card">
-      <div class="hd"><h2>课堂纪律</h2></div>
-      <div class="tagcloud" v-if="rec.discipline_tags && rec.discipline_tags.length">
-        <span class="tagpill on" v-for="t in rec.discipline_tags" :key="t">{{ t }}</span>
+      <div class="stu-list mt8" v-if="(rec.leave_count || 0) > 0 || (rec.leave_students || []).length">
+        <div class="tiny muted mb8">请假名单（{{ rec.leave_count || 0 }} 人）</div>
+        <div class="sm stu-line" v-for="(s2, i) in (rec.leave_students || [])" :key="'rl' + i">
+          <span class="stu-no">{{ i + 1 }}</span>{{ s2.cls ? s2.cls + '班 ' : '' }}{{ s2.name }}
+        </div>
+        <div class="sm muted" v-if="!(rec.leave_students || []).length">未填写名单</div>
       </div>
-      <div class="muted sm" v-else>无纪律问题</div>
+
       <div class="sm mt12" v-if="rec.remark"><span class="muted">备注：</span>{{ rec.remark }}</div>
     </div>
 
@@ -103,6 +129,7 @@ window.Views.AdminRecord = {
         </button>
         <span class="tiny muted" v-else>{{ photos.length }} 张</span>
       </div>
+      <div class="tiny muted mt8">拍摄 {{ photoTakeText() }} · 提交 {{ U.dayTime(rec.submitted_at) || '—' }}</div>
       <div v-if="photosLoaded && photos.length">
         <div class="photo-row" v-for="(ph, i) in photos" :key="ph.id">
           <div class="photo-row-img" @click="openPhoto(i)">
@@ -147,8 +174,9 @@ window.Views.AdminRecord = {
     <div class="mask mask-center" v-if="confirmDel" @click.self="confirmDel = false">
       <div class="sheet sheet-center">
         <h3>打回记录</h3>
-        <div class="sub" style="white-space:pre-line">打回「{{ rec.course_name }} · {{ rec.class_name }}」？\n\n记录将删除，修改留痕与照片一并清除。\n如果它来自选课计划，计划会回到「待填报」，成员可重新填写。</div>
-        <button class="btn btn-danger btn-block" :disabled="busy" @click="doDelete">{{ busy ? '处理中…' : '确认打回' }}</button>
+        <div class="sub" style="white-space:pre-line">打回「{{ rec.course_name }} · {{ rec.class_name }}」？\n\n记录会保留（成员可在「我的记录」里查看，标记为「已打回」），统计与导出不再计入。\n计划回到「待填报」后，成员打开会是上次填写的内容和原照片，只需修改要改的数据再提交。</div>
+        <input class="input mt8" v-model="returnReason" maxlength="60" placeholder="打回原因（可留空，默认：管理员打回记录，请修改后重新提交）">
+        <button class="btn btn-danger btn-block mt8" :disabled="busy" @click="doReturn">{{ busy ? '处理中…' : '确认打回' }}</button>
         <button class="btn btn-block mt8" @click="confirmDel = false">取消</button>
       </div>
     </div>
@@ -205,12 +233,48 @@ window.Views.AdminRecord = {
           <div class="field"><label class="label">实到</label><input class="input" type="number" v-model.number="edit.actual_count"></div>
         </template>
         <div class="grid2">
-          <div class="field"><label class="label">旷课</label><input class="input" type="number" v-model.number="edit.absent_count"></div>
-          <div class="field"><label class="label">请假</label><input class="input" type="number" v-model.number="edit.leave_count"></div>
-          <div class="field"><label class="label">迟到</label><input class="input" type="number" v-model.number="edit.late_count"></div>
+          <div class="field"><label class="label">旷课</label><input class="input" type="number" v-model.number="edit.absent_count" @input="syncEditStudents('absent')"></div>
+          <div class="field"><label class="label">请假</label><input class="input" type="number" v-model.number="edit.leave_count" @input="syncEditStudents('leave')"></div>
+        </div>
+
+        <div class="stu-wrap" v-if="Number(edit.absent_count) > 0">
+          <div class="tiny muted mb8">旷课名单（{{ Number(edit.absent_count) || 0 }} 人）</div>
+          <div class="stu-row" v-for="(s2, i) in edit.absent_students" :key="'ea' + i">
+            <div class="stu-idx">第 {{ i + 1 }} 个</div>
+            <input class="input" v-model="s2.cls" maxlength="20" placeholder="班级（必填）">
+            <input class="input" v-model="s2.name" maxlength="20" placeholder="姓名（必填）">
+          </div>
+        </div>
+
+        <div class="stu-wrap mt12" v-if="Number(edit.leave_count) > 0">
+          <div class="tiny muted mb8">请假名单（{{ Number(edit.leave_count) || 0 }} 人）</div>
+          <div class="stu-row" v-for="(s2, i) in edit.leave_students" :key="'el' + i">
+            <div class="stu-idx">第 {{ i + 1 }} 个</div>
+            <input class="input" v-model="s2.cls" maxlength="20" placeholder="班级（必填）">
+            <input class="input" v-model="s2.name" maxlength="20" placeholder="姓名（必填）">
+          </div>
         </div>
         <div class="tiny" style="margin-bottom:12px" :style="sumOkEdit ? 'color:var(--muted)' : 'color:var(--bad)'">
           {{ sumOkEdit ? '人数合计一致' : (edit.classes && edit.classes.length ? '每班实到不能超过应到' : '应到应等于 实到 + 旷课 + 请假') }}
+        </div>
+        <div class="field"><label class="label">教师上课情况</label>
+          <select class="select" v-model="edit.teacher_status">
+            <option value="">未填写</option>
+            <option v-for="t in TEACHER_OPTS" :key="t" :value="t">{{ t }}</option>
+          </select>
+        </div>
+        <div class="tiny muted" style="margin:4px 0 6px">课堂纪律（人数）</div>
+        <div class="grid2">
+          <div class="field"><label class="label">玩手机</label><input class="input" type="number" v-model.number="edit.phone_count"></div>
+          <div class="field"><label class="label">睡觉</label><input class="input" type="number" v-model.number="edit.sleep_count"></div>
+          <div class="field"><label class="label">10分钟玩手机</label><input class="input" type="number" v-model.number="edit.phone_10"></div>
+          <div class="field"><label class="label">10分钟睡觉</label><input class="input" type="number" v-model.number="edit.sleep_10"></div>
+          <div class="field"><label class="label">30分钟玩手机</label><input class="input" type="number" v-model.number="edit.phone_30"></div>
+          <div class="field"><label class="label">30分钟睡觉</label><input class="input" type="number" v-model.number="edit.sleep_30"></div>
+        </div>
+        <div class="grid2">
+          <div class="field"><label class="label">老师评分</label><input class="input" type="number" step="0.1" min="9" max="10" v-model.number="edit.teacher_score"></div>
+          <div class="field"><label class="label">学生评分</label><input class="input" type="number" step="0.1" min="9" max="10" v-model.number="edit.student_score"></div>
         </div>
         <div class="field"><label class="label">课程主要内容</label><textarea class="textarea textarea-xs" v-model="edit.discipline_note" maxlength="200"></textarea></div>
         <div class="field"><label class="label">检查备注</label><input class="input" v-model="edit.remark"></div>
@@ -223,7 +287,15 @@ window.Views.AdminRecord = {
     </div>
   </div>`,
 
-  data() { return { U, rec: null, revisions: [], editing: false, saving: false, err: '', edit: {}, confirmDel: false, confirmHard: false, busy: false, photos: [], photosLoaded: false, photoLoading: false, fullPhoto: null } },
+  data() { return { U, returnReason: '', rec: null, revisions: [], editing: false, saving: false, err: '', edit: {}, confirmDel: false, confirmHard: false, busy: false, photos: [], photosLoaded: false, photoLoading: false, fullPhoto: null, photoTimes: null, TEACHER_OPTS: [
+    '老师备课充分，授课条理清楚，学生积极互动。',
+    '老师讲解细致，节奏适中，课堂秩序良好。',
+    '老师讲课认真、热情，学生积极配合老师回答问题。',
+    '老师讲课认真，时常关注学生听课状态，与学生互动并解答问题。',
+    '老师备课充分，板书详细，授课条理清楚，循循善诱，学生积极互动。',
+    '老师讲课认真，条理清晰，关注学生状态，积极与学生互动。',
+    '老师上课重点突出，大部分学生上课积极融入课堂。',
+  ] } },
   computed: {
     periods() { return U.PERIODS },
     minDate() {
@@ -233,6 +305,12 @@ window.Views.AdminRecord = {
     maxDate() {
       const s = Store.store.semester
       return s ? U.addDays(s.start_monday, s.total_weeks * 7 - 1) : ''
+    },
+    // 出勤率 ≥ 90% 显示绿色，否则黄色提示
+    attendanceOk() {
+      const e = Number(this.rec && this.rec.expected_count) || 0
+      if (!e) return true
+      return ((Number(this.rec.actual_count) || 0) / e) >= 0.9
     },
     classList() {
       if (!this.rec || !Array.isArray(this.rec.classes)) return []
@@ -267,7 +345,7 @@ window.Views.AdminRecord = {
       if (!this.rec || this.photoLoading) return
       this.photoLoading = true
       try {
-        const list = await Store.rpc('photo_list', { p_record_id: Number(this.rec.id) }) || []
+        const list = await Store.rpcCached('photo_list', { p_record_id: Number(this.rec.id) }, 300000) || []
         const out = []
         for (const p of list) {
           const hit = window.PhotoCache ? await PhotoCache.get(p.id) : null
@@ -303,13 +381,15 @@ window.Views.AdminRecord = {
         this.fullPhoto = ph
       } catch (e) { U.toast(U.errText(e), 'bad') } finally { this.photoLoading = false }
     },
-    async doDelete() {
+    async doReturn() {
       this.busy = true
       try {
-        await Store.rpc('record_delete', { p_id: this.rec.id })
-        U.toast('已打回，成员可重新填报')
+        await Store.rpc('record_return', { p_id: this.rec.id, p_reason: (this.returnReason || '').trim() || null })
+        U.toast('已打回（记录保留），成员可重新填报')
+        Store.clearRpcCache()
         this.confirmDel = false
-        Store.nav('/admin')
+        this.returnReason = ''
+        Store.nav('/admin/checks')
       } catch (e) {
         U.toast(U.errText(e), 'bad')
       } finally {
@@ -321,6 +401,7 @@ window.Views.AdminRecord = {
       try {
         await Store.rpc('record_delete_hard', { p_id: this.rec.id })
         U.toast('已彻底删除')
+        Store.clearRpcCache()
         this.confirmHard = false
         Store.nav('/admin')
       } catch (e) {
@@ -334,17 +415,40 @@ window.Views.AdminRecord = {
       const cls = this.classList
       this.edit = {
         expected_count: this.rec.expected_count, actual_count: this.rec.actual_count,
-        late_count: this.rec.late_count,
         absent_count: this.rec.absent_count, leave_count: this.rec.leave_count,
         remark: this.rec.remark || '', correction_note: '',
         course_name: this.rec.course_name || '', teacher: this.rec.teacher || '', room: this.rec.room || '',
         check_date: this.rec.check_date, period_from: this.rec.period_from, period_to: this.rec.period_to,
         discipline_note: this.rec.discipline_note || '',
+        teacher_status: this.rec.teacher_status || '',
+        phone_count: Number(this.rec.phone_count) || 0,
+        sleep_count: Number(this.rec.sleep_count) || 0,
+        phone_10: Number(this.rec.phone_10) || 0,
+        sleep_10: Number(this.rec.sleep_10) || 0,
+        phone_30: Number(this.rec.phone_30) || 0,
+        sleep_30: Number(this.rec.sleep_30) || 0,
+        teacher_score: this.rec.teacher_score == null ? 9.5 : Number(this.rec.teacher_score),
+        student_score: this.rec.student_score == null ? 9.5 : Number(this.rec.student_score),
         classes: cls.map((c) => ({ code: c.code, expected: c.expected, actual: c.actual === null ? c.expected : c.actual })),
         other_expected: Number(this.rec.other_expected) || 0,
         other_actual: Number(this.rec.other_actual) || 0,
+        absent_students: (this.rec.absent_students || []).map((s) => ({ cls: s.cls || '', name: s.name || '' })),
+        leave_students: (this.rec.leave_students || []).map((s) => ({ cls: s.cls || '', name: s.name || '' })),
       }
+      // 人数>0 但原名单不足时补齐空行，方便直接编辑
+      this.syncEditStudents('absent')
+      this.syncEditStudents('leave')
       this.editing = true
+    },
+    // 人数变化时同步名单行数（加人补空行、减人截断）
+    syncEditStudents(kind) {
+      const cntKey = kind === 'absent' ? 'absent_count' : 'leave_count'
+      const key = kind === 'absent' ? 'absent_students' : 'leave_students'
+      const n = Math.max(0, Math.min(Number(this.edit[cntKey]) || 0, 100))
+      this.edit[cntKey] = n
+      const arr = this.edit[key] || (this.edit[key] = [])
+      while (arr.length < n) arr.push({ cls: '', name: '' })
+      if (arr.length > n) arr.splice(n)
     },
     diffText(r) {
       const before = r.before_row || {}
@@ -353,14 +457,25 @@ window.Views.AdminRecord = {
       Object.keys(FIELD_LABELS).forEach((k) => {
         const a = before[k]
         const b = after[k]
-        const sa = Array.isArray(a) ? a.join('、') : (a === null || a === undefined ? '' : String(a))
-        const sb = Array.isArray(b) ? b.join('、') : (b === null || b === undefined ? '' : String(b))
+        const sa = fieldText(a)
+        const sb = fieldText(b)
         if (sa !== sb) parts.push(`${FIELD_LABELS[k]}：${sa || '空'} → ${sb || '空'}`)
       })
       return parts.length ? parts.join('；') : '保存了一次修改（内容与之前一致）'
     },
     async save() {
       if (!this.edit.correction_note.trim()) { this.err = '请填写修正原因'; return }
+      // 名单必须与人数一致，且每行班级+姓名都填
+      for (const kind of ['absent', 'leave']) {
+        const cnt = Number(this.edit[kind === 'absent' ? 'absent_count' : 'leave_count']) || 0
+        const arr = this.edit[kind === 'absent' ? 'absent_students' : 'leave_students'] || []
+        const label = kind === 'absent' ? '旷课' : '请假'
+        if (arr.length !== cnt) { this.err = label + '名单与人数不一致，请补全'; return }
+        if (arr.some((s) => !String(s.cls || '').trim() || !String(s.name || '').trim())) {
+          this.err = label + '名单里每位同学的班级和姓名都要填'
+          return
+        }
+      }
       this.saving = true
       this.err = ''
       try {
@@ -384,17 +499,28 @@ window.Views.AdminRecord = {
             actual_count: sumAct,
             classes: hasCls ? this.edit.classes.map((c) => ({ code: c.code, expected: Number(c.expected) || 0, actual: Number(c.actual) || 0 })) : [],
             other_actual: Number(this.edit.other_actual) || 0,
-            late_count: Number(this.edit.late_count) || 0,
             absent_count: Number(this.edit.absent_count) || 0,
             leave_count: Number(this.edit.leave_count) || 0,
+            absent_students: this.edit.absent_students || [],
+            leave_students: this.edit.leave_students || [],
             remark: this.edit.remark || '',
             discipline_note: this.edit.discipline_note || '',
+            teacher_status: this.edit.teacher_status || '',
+            phone_count: Number(this.edit.phone_count) || 0,
+            sleep_count: Number(this.edit.sleep_count) || 0,
+            phone_10: Number(this.edit.phone_10) || 0,
+            sleep_10: Number(this.edit.sleep_10) || 0,
+            phone_30: Number(this.edit.phone_30) || 0,
+            sleep_30: Number(this.edit.sleep_30) || 0,
+            teacher_score: Number(this.edit.teacher_score) || 9.5,
+            student_score: Number(this.edit.student_score) || 9.5,
             correction_note: this.edit.correction_note.trim(),
           },
         })
         this.rec = row
         this.editing = false
         U.toast('已修正并留痕')
+        Store.clearRpcCache()
         this.load()
       } catch (e) {
         this.err = U.errText(e)
@@ -405,10 +531,17 @@ window.Views.AdminRecord = {
     async load() {
       const id = this.$root.route.params.id
       try {
-        const d = await Store.rpc('admin_record_get', { p_id: Number(id) })
+        const d = await Store.rpcCached('admin_record_get', { p_id: Number(id) }, 30000)
         this.rec = d.record
         this.revisions = d.revisions || []
+        Store.rpcCached('photo_times', { p_record_id: Number(id) }, 300000)
+          .then((t) => { this.photoTimes = t })
+          .catch(() => {})
       } catch (e) { U.toast(U.errText(e), 'bad'); this.back() }
+    },
+    photoTakeText() {
+      const t = this.photoTimes && (this.photoTimes.taken_at || this.photoTimes.created_at)
+      return t ? U.dayTime(t) : '—'
     },
   },
 }
@@ -562,7 +695,7 @@ window.Views.AdminMembers = {
       window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY - 64, behavior: 'smooth' })
     },
     async load() {
-      try { this.users = await Store.rpc('staff_list') || [] } catch (e) { U.toast(U.errText(e), 'bad') }
+      try { this.users = await Store.rpcCached('staff_list', {}, 120000) || [] } catch (e) { U.toast(U.errText(e), 'bad') }
     },
     resetPwd(m) {
       this.confirmAct = {
@@ -572,6 +705,7 @@ window.Views.AdminMembers = {
         run: async () => {
           await Store.rpc('staff_reset_password', { p_id: m.id })
           U.toast('已重置为学号，对方登录后需改密')
+          Store.clearRpcCache()
           this.load()
         },
       }
@@ -598,6 +732,7 @@ window.Views.AdminMembers = {
         run: async () => {
           await Store.rpc('staff_update', { p_id: m.id, p_status: '', p_role: role })
           U.toast('已更新')
+          Store.clearRpcCache()
           this.load()
         },
       }
@@ -612,6 +747,7 @@ window.Views.AdminMembers = {
         run: async () => {
           await Store.rpc('staff_update', { p_id: m.id, p_status: status, p_role: '' })
           U.toast('已更新')
+          Store.clearRpcCache()
           this.load()
         },
       }
@@ -681,7 +817,7 @@ window.Views.AdminSemesters = {
     reset() { this.form = { id: '', name: '', start_monday: '', total_weeks: 18 } },
     edit(s) { this.form = { id: s.id, name: s.name, start_monday: s.start_monday, total_weeks: s.total_weeks } },
     async load() {
-      try { this.list = await Store.rpc('semester_list') || [] } catch (e) { U.toast(U.errText(e), 'bad') }
+      try { this.list = await Store.rpcCached('semester_list', {}, 120000) || [] } catch (e) { U.toast(U.errText(e), 'bad') }
     },
     async save() {
       if (!this.form.name.trim()) return U.toast('请填写学期名称', 'bad')
@@ -697,6 +833,7 @@ window.Views.AdminSemesters = {
           },
         })
         U.toast('已保存')
+        Store.clearRpcCache()
         this.reset()
         await this.load()
         await Store.refresh()
@@ -706,6 +843,7 @@ window.Views.AdminSemesters = {
       try {
         await Store.rpc('semester_set_current', { p_id: s.id })
         U.toast('已设为当前学期')
+        Store.clearRpcCache()
         await this.load()
         await Store.refresh()
       } catch (e) { U.toast(U.errText(e), 'bad') }
@@ -898,11 +1036,11 @@ window.Views.AdminPlanEdit = {
           <label class="label">被查班级<i class="req">*</i></label>
           <div class="cls-row" v-for="(c, i) in form.classes" :key="i">
             <input class="input" v-model="c.code" maxlength="8" inputmode="numeric" placeholder="8 位班级号" @input="normCode(i)">
-            <input class="input cls-num" v-model="c.expected" inputmode="numeric" placeholder="应到">
+            <input class="input cls-num" v-model="c.expected" inputmode="numeric" placeholder="应到 1~50">
             <button type="button" class="btn btn-sm btn-danger" v-if="form.classes.length > 1" @click="removeClass(i)">删</button>
             <button type="button" class="cls-add" v-if="canAdd(i)" @click="addClass">＋</button>
           </div>
-          <div class="tiny muted">班级号填 8 位数字，应到填该班点名册人数。</div>
+          <div class="tiny muted">班级号填 8 位数字，应到填该班点名册人数（<b>每班 1~50 人</b>）。</div>
 
           <label class="label cls-other-label mt12">其他人数</label>
           <div class="cls-row">
@@ -981,7 +1119,8 @@ window.Views.AdminPlanEdit = {
       for (const c of rows) {
         if (c.code.length !== 8) return '班级号必须是 8 位数字'
         if (String(c.expected).trim() === '') return '请填写每个班的应到人数'
-        if (Number(c.expected) < 0) return '应到人数不能为负'
+        const exp = Number(c.expected)
+        if (!Number.isFinite(exp) || exp < 1 || exp > 50) return c.code + ' 的应到人数需在 1~50 之间（单班最多 50 人）'
       }
       if (String(this.form.other_expected).trim() === '') return '请填写其他类应到人数'
       if (Number(this.form.other_expected) < 0) return '其他类人数不能为负'
@@ -993,7 +1132,7 @@ window.Views.AdminPlanEdit = {
       try {
         const [plan, staff] = await Promise.all([
           Store.rpc('admin_plan_get', { p_id: Number(this.id) }),
-          Store.rpc('staff_list'),
+          Store.rpcCached('staff_list', {}, 120000),
         ])
         this.plan = plan
         this.members = staff || []
@@ -1042,12 +1181,116 @@ window.Views.AdminPlanEdit = {
           },
         })
         U.toast('已保存')
+        Store.clearRpcCache()
         Store.nav('/admin/checks?week=' + this.weekTarget)
       } catch (e) {
         this.err = U.errText(e)
       } finally {
         this.busy = false
       }
+    },
+  },
+}
+
+/* 打回跟踪：管理员查看被打回记录的处理状态（谁还没改、谁已改、改了但没补数据） */
+window.Views.AdminReturned = {
+  template: `
+  <div class="shell shell-wide">
+    <div class="topbar">
+      <div class="side"><button class="iconbtn back" @click="go('/admin')">‹</button></div>
+      <h1>打回跟踪</h1>
+      <div class="side right"><button class="iconbtn" :disabled="loading" @click="load" title="刷新">↻</button></div>
+    </div>
+
+    <div class="card mt12">
+      <div class="row between">
+        <div>
+          <div class="tiny muted">待处理</div>
+          <div class="strong" style="font-size:24px;color:var(--bad)">{{ pending }}</div>
+        </div>
+        <div style="text-align:center">
+          <div class="tiny muted">已处理</div>
+          <div class="strong" style="font-size:24px;color:var(--ok)">{{ done }}</div>
+        </div>
+        <button class="btn btn-sm btn-primary" :disabled="!pendingList.length" @click="copyPending">复制未处理名单</button>
+      </div>
+      <div class="tiny muted mt8">打回后记录会保留，成员打开时带出上次填写的内容和原照片；改完提交即恢复计入统计与导出。</div>
+    </div>
+
+    <div class="card mt12" v-if="loading"><div class="empty">加载中…</div></div>
+    <template v-else>
+      <div class="card mt12">
+        <div class="hd"><h2>待处理</h2><span class="tiny muted">{{ pendingList.length }} 条</span></div>
+        <div v-if="!pendingList.length" class="empty">没有待处理的记录</div>
+        <div class="rv-item" v-for="r in pendingList" :key="r.id" @click="openRec(r.id)">
+          <div class="row between">
+            <span class="strong">{{ r.owner_name }}</span>
+            <span class="tiny muted">打回 {{ r.returned_at_text }}</span>
+          </div>
+          <div class="sm mt8">{{ r.course_name }} <span class="muted">· {{ r.class_name }}</span></div>
+          <div class="tiny muted mt8">第 {{ r.week_no }} 周 {{ U.periodText(r.period_from, r.period_to) }} · 应到 {{ r.expected_count }} / 实到 {{ r.actual_count }} · {{ r.photo_count }} 张照片</div>
+          <div class="mt8" v-if="r.missing"><span class="badge badge-warn">纪律数据未补（原记录就是 0/空）</span></div>
+        </div>
+      </div>
+
+      <div class="card mt12" v-if="doneList.length">
+        <div class="hd" style="cursor:pointer" @click="showDone = !showDone"><h2>已处理 {{ doneList.length }} 条</h2><span class="tiny muted">{{ showDone ? '收起' : '展开' }} ›</span></div>
+        <template v-if="showDone">
+        <div class="rv-item" v-for="r in doneList" :key="r.id" @click="openRec(r.id)">
+          <div class="row between">
+            <span class="strong">{{ r.owner_name }}</span>
+            <span class="tiny" style="color:var(--ok)">{{ r.superseded ? '已由新记录替代' : '已重新提交' }}</span>
+          </div>
+          <div class="sm mt8">{{ r.course_name }} <span class="muted">· {{ r.class_name }}</span></div>
+          <div class="tiny muted mt8">打回 {{ r.returned_at_text }} · 应到 {{ r.expected_count }} / 实到 {{ r.actual_count }} · {{ r.photo_count }} 张照片</div>
+          <div class="mt8" v-if="r.missing && !r.superseded"><span class="badge badge-warn">已提交，但纪律数据仍是 0 / 教师情况空</span></div>
+        </div>
+        </template>
+      </div>
+    </template>
+  </div>`,
+  data() { return { U, loading: true, items: [], pending: 0, done: 0, showDone: false } },
+  computed: {
+    pendingList() { return this.items.filter((r) => r.returned) },
+    doneList() { return this.items.filter((r) => !r.returned) },
+  },
+  mounted() { this.load() },
+  methods: {
+    go(p) { Store.nav(p) },
+    openRec(id) { Store.nav('/admin/records/' + id) },
+    async load() {
+      this.loading = true
+      try {
+        const d = await Store.rpcCached('admin_returned', {}, 30000)
+        this.items = (d.items || []).map((r) => Object.assign({}, r, {
+          returned_at_text: r.returned_at ? U.dayTime(r.returned_at) : '—',
+        }))
+        this.pending = Number(d.pending) || 0
+        this.done = Number(d.done) || 0
+      } catch (e) {
+        U.toast(U.errText(e), 'bad')
+      } finally {
+        this.loading = false
+      }
+    },
+    copyPending() {
+      const map = {}
+      this.pendingList.forEach((r) => { (map[r.owner_name] = map[r.owner_name] || []).push(r.course_name) })
+      const text = Object.keys(map).map((n) => n + '：' + map[n].join('、')).join('\n')
+      const finish = () => U.toast('已复制，可直接粘贴发群')
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(finish).catch(() => this.fallbackCopy(text, finish))
+      } else this.fallbackCopy(text, finish)
+    },
+    fallbackCopy(text, done) {
+      const ta = document.createElement('textarea')
+      ta.value = text
+      ta.style.position = 'fixed'
+      ta.style.opacity = '0'
+      document.body.appendChild(ta)
+      ta.select()
+      try { document.execCommand('copy'); done() } catch (e) { U.toast('复制失败，请手动选择文本', 'bad') }
+      document.body.removeChild(ta)
     },
   },
 }

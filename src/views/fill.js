@@ -90,7 +90,7 @@ window.Views.FillView = {
   <div class="shell">
     <div class="topbar">
       <div class="side"><button class="iconbtn back" @click="back">‹</button></div>
-      <h1>填写查课结果</h1>
+      <h1>{{ editMode ? '修改查课结果' : '填写查课结果' }}</h1>
       <div class="side right"></div>
     </div>
 
@@ -103,7 +103,12 @@ window.Views.FillView = {
     </div>
 
     <div class="card mt12">
-      <div class="hd"><h2>现场照片 <span class="badge badge-bad">必填</span></h2><span class="tiny muted">{{ photos.length }} / 2</span></div>
+      <div class="hd">
+        <h2>现场照片 <span class="badge badge-bad" v-if="!editMode">必填</span><span class="badge badge-pri" v-else>沿用原照片</span></h2>
+        <span class="tiny muted" v-if="!editMode">{{ photos.length }} / 2</span>
+        <span class="tiny muted" v-else>已保留 {{ editPhotoCount }} 张</span>
+      </div>
+      <div class="tiny muted mb8" v-if="editMode">上次提交的照片已保留，<b>不用重新上传</b>；如需补充可再添加。</div>
       <div class="photo-grid">
         <div class="photo-item" v-for="(ph, i) in photos" :key="ph.key">
           <img v-if="ph.preview" :src="ph.preview" alt="现场照片">
@@ -116,13 +121,14 @@ window.Views.FillView = {
           <span class="photo-add-t">拍照 / 从相册选择</span>
         </label>
       </div>
-      <div class="tiny mt8" style="color:var(--bad)">课检员考勤需要，至少上传 1 张现场照片后才能提交。</div>
+      <div class="tiny mt8" style="color:var(--bad)" v-if="!editMode">课检员考勤需要，至少上传 1 张现场照片后才能提交。</div>
       <div class="tiny muted mt8">最多 2 张，自动压缩到 500KB 以内。建议拍教室全景或黑板，避免人脸特写。</div>
     </div>
 
     <div class="card mt12" v-if="plan && plan.note" style="background:var(--bad-soft);border:1px solid rgba(217,45,32,.35)">
-      <div class="strong" style="color:var(--bad)">这节课程被打回，请修改后重新提交</div>
+      <div class="strong" style="color:var(--bad)">{{ editMode ? '这条记录被打回，可直接修改下方内容' : '这节课程被打回，请重新填写' }}</div>
       <div class="sm mt8">打回原因：{{ plan.note }}</div>
+      <div class="sm mt8 muted" v-if="editMode">下方已带出上次提交的内容，改完直接提交即可（照片沿用）。</div>
     </div>
 
     <!-- ===== 课程信息 + 出勤情况（合并：出勤紧跟课检班级实到） ===== -->
@@ -222,23 +228,25 @@ window.Views.FillView = {
         <div class="count-col">
           <num-field label="旷课" v-model="form.absent_count"></num-field>
           <div class="stu-wrap" v-if="form.absent_count > 0">
-            <div class="tiny muted mb8">旷课名单</div>
+            <div class="tiny muted mb8">旷课名单<span class="req" style="margin-left:4px">*</span></div>
             <div class="stu-row" v-for="(s2, i) in form.absent_students" :key="'a' + i">
               <div class="stu-idx">第 {{ i + 1 }} 个</div>
-              <input class="input" v-model="s2.cls" maxlength="20" placeholder="班级">
-              <input class="input" v-model="s2.name" maxlength="20" placeholder="姓名">
+              <input class="input" :style="String(s2.cls || '').trim() ? '' : 'border-color:var(--bad)'" v-model="s2.cls" maxlength="20" placeholder="班级（必填）">
+              <input class="input" :style="String(s2.name || '').trim() ? '' : 'border-color:var(--bad)'" v-model="s2.name" maxlength="20" placeholder="姓名（必填）">
             </div>
+            <div class="tiny mt8" style="color:var(--bad)" v-if="!absentOk">请补全每位旷课同学的班级和姓名后才能提交</div>
           </div>
         </div>
         <div class="count-col">
           <num-field label="请假" v-model="form.leave_count"></num-field>
           <div class="stu-wrap" v-if="form.leave_count > 0">
-            <div class="tiny muted mb8">请假名单</div>
+            <div class="tiny muted mb8">请假名单<span class="req" style="margin-left:4px">*</span></div>
             <div class="stu-row" v-for="(s2, i) in form.leave_students" :key="'l' + i">
               <div class="stu-idx">第 {{ i + 1 }} 个</div>
-              <input class="input" v-model="s2.cls" maxlength="20" placeholder="班级">
-              <input class="input" v-model="s2.name" maxlength="20" placeholder="姓名">
+              <input class="input" :style="String(s2.cls || '').trim() ? '' : 'border-color:var(--bad)'" v-model="s2.cls" maxlength="20" placeholder="班级（必填）">
+              <input class="input" :style="String(s2.name || '').trim() ? '' : 'border-color:var(--bad)'" v-model="s2.name" maxlength="20" placeholder="姓名（必填）">
             </div>
+            <div class="tiny mt8" style="color:var(--bad)" v-if="!leaveOk">请补全每位请假同学的班级和姓名后才能提交</div>
           </div>
         </div>
       </div>
@@ -249,6 +257,9 @@ window.Views.FillView = {
       </div>
       <div class="tiny muted" v-if="!planMode">实到 = 应到 − 旷课 − 请假</div>
       <div class="tiny muted" v-else>实到按上方班级明细汇总；旷课、请假只用于记录名单。</div>
+      <div class="tiny mt8" :style="sumOk ? 'color:var(--muted)' : 'color:var(--bad);font-weight:700'">
+        合计校验：实到 {{ actualCount }} + 请假 {{ Number(form.leave_count) || 0 }} + 旷课 {{ Number(form.absent_count) || 0 }} = {{ (Number(actualCount) || 0) + (Number(form.leave_count) || 0) + (Number(form.absent_count) || 0) }} / 应到 {{ expectedTotal }}{{ sumOk ? '' : '（不一致，请核对）' }}
+      </div>
 
       <div class="kvrow mt12"><span class="k">应到人数</span><span class="v strong num">{{ expectedTotal }}</span></div>
       <div class="kvrow"><span class="k">辅导员</span><span class="v">{{ counselorText }}</span></div>
@@ -329,19 +340,29 @@ window.Views.FillView = {
 
     <div class="mask mask-center" v-if="confirmShow">
       <div class="sheet sheet-center">
-        <h3>确认提交</h3>
-        <div class="sub">请确认已经完成所有填写</div>
-        <button class="btn btn-primary btn-block" :disabled="busy" @click="doSubmit">确认提交</button>
+        <h3>{{ editMode ? '确认重新提交' : '确认提交' }}</h3>
+        <div class="sub">{{ editMode ? '照片沿用原记录，提交后该记录恢复为正常状态并重新计入统计。' : '请确认已经完成所有填写' }}</div>
+        <button class="btn btn-primary btn-block" :disabled="busy" @click="doSubmit">{{ editMode ? '确认重新提交' : '确认提交' }}</button>
         <button class="btn btn-block mt8" @click="confirmShow = false">再检查一下</button>
       </div>
     </div>
 
     <div class="actionbar">
-      <div class="center tiny" v-if="!photos.length" style="color:var(--bad);margin-bottom:6px">课检员考勤需要，请先上传现场照片</div>
-      <div class="center tiny" v-else-if="!allConfirmed" style="color:var(--bad);margin-bottom:6px">还有未点「确定」的项目（课堂纪律 6 项 + 评分 2 项）</div>
+      <div class="center tiny muted" v-if="isTest" style="margin-bottom:6px">测试账号：不受提交限制（照片、名单、合计、确定项都可跳过）</div>
+      <template v-else-if="editMode">
+        <div class="center tiny" v-if="!studentsOk" style="color:var(--bad);margin-bottom:6px">旷课 / 请假名单未填完整：每位同学的班级和姓名都必填</div>
+        <div class="center tiny" v-else-if="!sumOk" style="color:var(--bad);margin-bottom:6px">人数合计不一致：各班实到 + 其他实到 + 请假 + 旷课 必须等于应到人数</div>
+        <div class="center tiny muted" v-else style="margin-bottom:6px">照片沿用原记录，只改需要变动的内容即可</div>
+      </template>
+      <template v-else>
+        <div class="center tiny" v-if="!photos.length" style="color:var(--bad);margin-bottom:6px">课检员考勤需要，请先上传现场照片</div>
+        <div class="center tiny" v-else-if="!allConfirmed" style="color:var(--bad);margin-bottom:6px">还有未点「确定」的项目（课堂纪律 6 项 + 评分 2 项）</div>
+        <div class="center tiny" v-else-if="!studentsOk" style="color:var(--bad);margin-bottom:6px">旷课 / 请假名单未填完整：每位同学的班级和姓名都必填</div>
+        <div class="center tiny" v-else-if="!sumOk" style="color:var(--bad);margin-bottom:6px">人数合计不一致：各班实到 + 其他实到 + 请假 + 旷课 必须等于应到人数</div>
+      </template>
       <div class="inner">
         <button class="btn btn-primary btn-block btn-lg" :disabled="busy || !canSubmit" @click="submit">
-          {{ busy ? '提交中…' : '提交查课结果' }}
+          {{ busy ? '提交中…' : (editMode ? '保存修改并重新提交' : '提交查课结果') }}
         </button>
       </div>
     </div>
@@ -361,6 +382,8 @@ window.Views.FillView = {
       ],
       isExtra: false, busy: false, err: '', photos: [],
       plan: null,
+      // 被打回后重新编辑：editRec 为原记录，照片沿用不重传
+      editRec: null, editPhotoCount: 0,
       confirmed: { phone_count: false, sleep_count: false, phone_10: false, sleep_10: false, phone_30: false, sleep_30: false, teacher_score: false, student_score: false },
       form: {
         check_date: '', period_from: 1, period_to: 2, arrive_before: '',
@@ -416,12 +439,41 @@ window.Views.FillView = {
       const need = ['phone_count', 'sleep_count', 'phone_10', 'sleep_10', 'phone_30', 'sleep_30', 'teacher_score', 'student_score']
       return need.every((k) => !!this.confirmed[k])
     },
+    absentOk() {
+      return (this.form.absent_students || []).every((s) => String(s.cls || '').trim() && String(s.name || '').trim())
+    },
+    leaveOk() {
+      return (this.form.leave_students || []).every((s) => String(s.cls || '').trim() && String(s.name || '').trim())
+    },
+    studentsOk() { return this.absentOk && this.leaveOk },
+    sumOk() {
+      const sum = (Number(this.actualCount) || 0) + (Number(this.form.absent_count) || 0) + (Number(this.form.leave_count) || 0)
+      return sum === (Number(this.expectedTotal) || 0)
+    },
+    // 被打回后重新编辑原记录（照片沿用，不重传）
+    editMode() { return !!this.editRec },
+    // 测试账号（学号 TEST 开头 / 姓名「测试」开头）：不受任何提交限制，方便反复测试
+    isTest() {
+      const me = Store.store.me || {}
+      return /^TEST/i.test(String(me.student_no || '')) || /^测试/.test(String(me.name || ''))
+    },
     canSubmit() {
+      if (this.isTest) return true
+      // 被打回后修改原记录：只校验人数合计与名单，照片/确定项/教师情况不强制
+      if (this.editMode) {
+        if (!this.form.check_date) return false
+        if (this.planMode && this.form.classes.some((c) => (Number(c.actual) || 0) > (Number(c.expected) || 0))) return false
+        if (!this.sumOk) return false
+        if (!this.studentsOk) return false
+        return true
+      }
       if (!this.form.check_date) return false
       if (!this.form.course_name.trim() || !this.form.class_name.trim()) return false
       if (this.actualCount < 0) return false
       if (this.planMode && this.form.classes.some((c) => (Number(c.actual) || 0) > (Number(c.expected) || 0))) return false
       if (!this.photos.length) return false
+      if (!this.sumOk) return false
+      if (!this.studentsOk) return false
       if (!this.form.teacher_status) return false
       if (!this.form.course_content.trim()) return false
       // 课堂纪律 6 项 + 评分 2 项，共 8 个「确定」都按下才能提交
@@ -442,11 +494,6 @@ window.Views.FillView = {
   methods: {
     back() { history.length > 1 ? history.back() : Store.nav('/') },
     setPeriod(p) { this.form.period_from = p[0]; this.form.period_to = p[1] },
-    toggleTag(t) {
-      const i = this.form.discipline_tags.indexOf(t)
-      if (i >= 0) this.form.discipline_tags.splice(i, 1)
-      else this.form.discipline_tags.push(t)
-    },
     tagsForPayload() {
       const list = this.form.discipline_tags.slice()
       if (Number(this.form.phone_count) > 0 && list.indexOf('玩手机') < 0) list.push('玩手机')
@@ -468,8 +515,8 @@ window.Views.FillView = {
     },
     async loadPlan(id) {
       try {
-        const row = await Store.rpc('plan_get', { p_id: Number(id) })
-        if (row.status === 'submitted') { U.toast('这节已经填过了'); return Store.nav('/') }
+        const row = await Store.rpcCached('plan_get', { p_id: Number(id) })
+        if (row.status === 'submitted' && !this.isTest) { U.toast('这节已经填过了'); return Store.nav('/') }
         if (row.status === 'void') { U.toast('这节计划已作废'); return Store.nav('/') }
         this.plan = row
         this.fillFrom(row)
@@ -482,7 +529,47 @@ window.Views.FillView = {
         this.form.other_actual = this.form.other_expected
         const sum = this.form.classes.reduce((s, c) => s + c.expected, 0) + this.form.other_expected
         if (sum > 0) this.form.expected_count = sum
+        // 若这节课有被打回的记录，直接载入原数据供修改（照片沿用，不重传）
+        try {
+          const redo = await Store.rpcCached('record_of_plan', { p_plan_id: row.id })
+          if (redo && redo.record) this.applyReturnedRecord(redo.record, Number(redo.photo_count) || 0)
+        } catch (e2) { /* 查询失败按新填处理 */ }
       } catch (e) { U.toast(U.errText(e), 'bad'); Store.nav('/') }
+    },
+    applyReturnedRecord(rec, photoCount) {
+      this.editRec = rec
+      this.editPhotoCount = photoCount || 0
+      this.fillFrom(rec)
+      this.form.course_name = rec.course_name || this.form.course_name
+      this.form.class_name = rec.class_name || this.form.class_name
+      this.form.absent_count = Number(rec.absent_count) || 0
+      this.form.leave_count = Number(rec.leave_count) || 0
+      this.form.absent_students = (rec.absent_students || []).map((s) => ({ cls: s.cls || '', name: s.name || '' }))
+      this.form.leave_students = (rec.leave_students || []).map((s) => ({ cls: s.cls || '', name: s.name || '' }))
+      this.form.phone_count = Number(rec.phone_count) || 0
+      this.form.sleep_count = Number(rec.sleep_count) || 0
+      this.form.phone_10 = Number(rec.phone_10) || 0
+      this.form.sleep_10 = Number(rec.sleep_10) || 0
+      this.form.phone_30 = Number(rec.phone_30) || 0
+      this.form.sleep_30 = Number(rec.sleep_30) || 0
+      this.form.teacher_status = rec.teacher_status || ''
+      this.form.teacher_score = rec.teacher_score == null ? 9.5 : Number(rec.teacher_score)
+      this.form.student_score = rec.student_score == null ? 9.5 : Number(rec.student_score)
+      this.form.course_content = rec.discipline_note || ''
+      this.form.remark = rec.remark || ''
+      this.form.discipline_tags = Array.isArray(rec.discipline_tags) ? rec.discipline_tags.slice() : []
+      const cls = Array.isArray(rec.classes) ? rec.classes : []
+      if (cls.length) {
+        this.form.classes = cls.slice().sort((a, b) => U.classCompare(a.code, b.code)).map((c) => ({
+          code: c.code || '', expected: Number(c.expected) || 0, actual: Number(c.actual) || 0,
+        }))
+      }
+      this.form.other_expected = Number(rec.other_expected) || 0
+      this.form.other_actual = Number(rec.other_actual) || 0
+      this.form.expected_count = Number(rec.expected_count) || 0
+      this.form.actual_count = Number(rec.actual_count) || 0
+      // 原有数值视为已确认，不必重新逐个点「确定」
+      Object.keys(this.confirmed).forEach((k) => { this.confirmed[k] = true })
     },
     async onPick(e) {
       const files = Array.from(e.target.files || [])
@@ -511,7 +598,7 @@ window.Views.FillView = {
       const ph = this.photos[i]
       if (!ph) return
       if (ph.saved && ph.id) {
-        try { await Store.rpc('photo_delete', { p_id: ph.id }) }
+        try { await Store.rpc('photo_delete', { p_id: ph.id }); Store.clearRpcCache('photo_times') }
         catch (e) { U.toast(U.errText(e), 'bad'); return }
       }
       this.photos.splice(i, 1)
@@ -597,8 +684,10 @@ window.Views.FillView = {
     submit() {
       this.err = ''
       if (!Store.store.semester) { this.err = '尚未设置学期，请联系管理员'; return }
-      this.form.classes.forEach((c, i) => this.clampActual(i))
-      this.clampOther()
+      if (!this.isTest) {
+        this.form.classes.forEach((c, i) => this.clampActual(i))
+        this.clampOther()
+      }
       if (!this.canSubmit) return
       this.confirmShow = true
     },
@@ -607,6 +696,20 @@ window.Views.FillView = {
       this.busy = true
       try {
         const body = this.payload()
+        if (this.editMode) {
+          // 修改被打回的原记录：照片沿用，只上传新追加的
+          const rec2 = await Store.rpc('record_resubmit', { p_id: this.editRec.id, p_payload: body })
+          if (this.photos.length) {
+            const fail2 = await this.uploadPhotos(rec2.id)
+            if (fail2) U.toast('已重新提交，但有 ' + fail2 + ' 张新照片未上传', 'bad')
+            else U.toast('已修改并重新提交')
+          } else {
+            U.toast('已修改并重新提交')
+          }
+          Store.clearRpcCache()
+          Store.nav('/')
+          return
+        }
         body.plan_id = this.plan ? this.plan.id : null
         body.is_extra = !this.plan
         body.client_uuid = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : ''
@@ -614,6 +717,7 @@ window.Views.FillView = {
         const fail = await this.uploadPhotos(rec.id)
         if (fail) U.toast('查课成功，但有 ' + fail + ' 张照片未上传', 'bad')
         else U.toast('查课成功')
+        Store.clearRpcCache()
         Store.nav('/')
       } catch (e) {
         this.err = U.errText(e)
@@ -632,7 +736,7 @@ window.Views.FillView = {
           ph.saved = true
           if (r && r.id) {
             ph.id = r.id
-            if (window.PhotoCache) PhotoCache.put(r.id, { thumb: ph.thumbDataUrl, data: ph.dataUrl })
+            if (window.PhotoCache) PhotoCache.put(r.id, { thumb: ph.thumbDataUrl, data: ph.dataUrl, takenAt: ph.takenAt || '' })
           }
         } catch (e) {
           fail += 1
@@ -650,6 +754,11 @@ window.Views.RecordView = {
       <div class="side"><button class="iconbtn back" @click="back">‹</button></div>
       <h1>查课记录</h1>
       <div class="side right"></div>
+    </div>
+
+    <div class="card mt12" v-if="rec && rec.returned" style="background:var(--bad-soft);border:1px solid rgba(217,45,32,.35)">
+      <div class="strong" style="color:var(--bad)">这条记录已被管理员打回</div>
+      <div class="sm mt8">记录保留仅作查看，不再计入统计与导出。请按原计划重新填报。</div>
     </div>
 
     <div class="card mt12" v-if="loading"><div class="empty">加载中…</div></div>
@@ -688,33 +797,36 @@ window.Views.RecordView = {
       </div>
 
       <div class="card">
-        <div class="hd"><h2>出勤</h2><span class="tiny muted">出勤率 {{ U.rate(rec.actual_count, rec.expected_count) || '—' }}</span></div>
+        <div class="hd"><h2>课堂</h2></div>
         <div class="stat-grid">
           <div class="stat"><div class="n">{{ rec.expected_count }}</div><div class="t">应到</div></div>
           <div class="stat ok"><div class="n">{{ rec.actual_count }}</div><div class="t">实到</div></div>
+          <div class="stat" :class="attendanceOk ? 'ok' : 'warn'"><div class="n" style="font-size:21px">{{ U.rate(rec.actual_count, rec.expected_count) || '—' }}</div><div class="t">出勤率</div></div>
           <div class="stat warn"><div class="n">{{ rec.absent_count }}</div><div class="t">旷课</div></div>
-        </div>
-        <div class="row between tiny muted mt12">
-          <span>请假 {{ rec.leave_count }}</span>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="hd"><h2>课堂纪律</h2></div>
-        <div class="row between sm" v-if="rec.teacher_status"><span class="muted">教师上课情况</span><span>{{ rec.teacher_status }}</span></div>
-        <div class="stat-grid mt8">
+          <div class="stat"><div class="n">{{ rec.leave_count || 0 }}</div><div class="t">请假</div></div>
           <div class="stat" :class="rec.phone_count ? 'warn' : ''"><div class="n">{{ rec.phone_count || 0 }}</div><div class="t">玩手机</div></div>
           <div class="stat" :class="rec.sleep_count ? 'warn' : ''"><div class="n">{{ rec.sleep_count || 0 }}</div><div class="t">睡觉</div></div>
-          <div class="stat"><div class="n">{{ (rec.phone_10 || 0) + (rec.sleep_10 || 0) }}</div><div class="t">10分钟</div></div>
+          <div class="stat" :class="rec.phone_10 ? 'warn' : ''"><div class="n">{{ rec.phone_10 || 0 }}</div><div class="t">10分钟玩手机</div></div>
+          <div class="stat" :class="rec.sleep_10 ? 'warn' : ''"><div class="n">{{ rec.sleep_10 || 0 }}</div><div class="t">10分钟睡觉</div></div>
+          <div class="stat" :class="rec.phone_30 ? 'warn' : ''"><div class="n">{{ rec.phone_30 || 0 }}</div><div class="t">30分钟玩手机</div></div>
+          <div class="stat" :class="rec.sleep_30 ? 'warn' : ''"><div class="n">{{ rec.sleep_30 || 0 }}</div><div class="t">30分钟睡觉</div></div>
         </div>
-        <div class="tiny muted mt8">
-          开课 10 分钟：玩手机 {{ rec.phone_10 || 0 }} · 睡觉 {{ rec.sleep_10 || 0 }}
+        <div class="row between sm mt12" v-if="rec.teacher_status"><span class="muted">教师上课情况</span><span>{{ rec.teacher_status }}</span></div>
+
+        <div class="stu-list mt12" v-if="(rec.absent_count || 0) > 0 || (rec.absent_students || []).length">
+          <div class="tiny muted mb8">旷课名单（{{ rec.absent_count || 0 }} 人）</div>
+          <div class="sm stu-line" v-for="(s2, i) in (rec.absent_students || [])" :key="'ra' + i">
+            <span class="stu-no">{{ i + 1 }}</span>{{ s2.cls ? s2.cls + '班 ' : '' }}{{ s2.name }}
+          </div>
+          <div class="sm muted" v-if="!(rec.absent_students || []).length">未填写名单</div>
         </div>
-        <div class="tiny muted mt8">
-          开课 30 分钟：玩手机 {{ rec.phone_30 || 0 }} · 睡觉 {{ rec.sleep_30 || 0 }}
-        </div>
-        <div class="tagcloud mt12" v-if="rec.discipline_tags && rec.discipline_tags.length">
-          <span class="tagpill on" v-for="t in rec.discipline_tags" :key="t">{{ t }}</span>
+
+        <div class="stu-list mt8" v-if="(rec.leave_count || 0) > 0 || (rec.leave_students || []).length">
+          <div class="tiny muted mb8">请假名单（{{ rec.leave_count || 0 }} 人）</div>
+          <div class="sm stu-line" v-for="(s2, i) in (rec.leave_students || [])" :key="'rl' + i">
+            <span class="stu-no">{{ i + 1 }}</span>{{ s2.cls ? s2.cls + '班 ' : '' }}{{ s2.name }}
+          </div>
+          <div class="sm muted" v-if="!(rec.leave_students || []).length">未填写名单</div>
         </div>
       </div>
 
@@ -731,6 +843,7 @@ window.Views.RecordView = {
           </button>
           <span class="tiny muted" v-else>{{ photos.length }} 张</span>
         </div>
+        <div class="tiny muted mt8">拍摄 {{ photoTakeText() }} · 提交 {{ U.dayTime(rec.submitted_at) || '—' }}</div>
         <div class="photo-grid" v-if="photosLoaded && photos.length">
           <div class="photo-item" v-for="(ph, i) in photos" :key="ph.id" @click="openPhoto(i)">
             <img v-if="ph.thumb" :src="ph.thumb" alt="现场照片">
@@ -758,15 +871,17 @@ window.Views.RecordView = {
     </template>
   </div>`,
 
-  data() { return { U, rec: null, loading: true, photos: [], photosLoaded: false, photoLoading: false, fullPhoto: null } },
+  data() { return { U, rec: null, loading: true, photos: [], photosLoaded: false, photoLoading: false, fullPhoto: null, photoTimes: null } },
   computed: {
-    isMine() {
-      const me = Store.store.me
-      return !!(this.rec && me && Number(this.rec.owner_id) === Number(me.id))
-    },
     counselorText() {
       if (!this.rec) return '—'
       return U.matchCounselors(Store.store.counselorMap, U.recordClassHints(this.rec)) || this.rec.counselor || '—'
+    },
+    // 出勤率 ≥ 90% 显示绿色，否则黄色提示
+    attendanceOk() {
+      const e = Number(this.rec && this.rec.expected_count) || 0
+      if (!e) return true
+      return ((Number(this.rec.actual_count) || 0) / e) >= 0.9
     },
     classList() {
       if (!this.rec || !Array.isArray(this.rec.classes)) return []
@@ -781,6 +896,20 @@ window.Views.RecordView = {
   methods: {
     actualOf(c) { return c.actual === null ? '—' : c.actual },
     back() { history.length > 1 ? history.back() : Store.nav('/') },
+    // 拍摄/上传时间只从本机缓存读，不请求云端（成员端照片本就只存本机）
+    async loadLocalPhotoTimes(id) {
+      const ids = localPhotoIds(id)
+      if (!ids.length) { this.photoTimes = null; return }
+      const taken = []
+      const created = []
+      for (const pid of ids) {
+        const hit = window.PhotoCache ? await PhotoCache.get(pid) : null
+        if (!hit) continue
+        if (hit.takenAt) taken.push(hit.takenAt)
+        if (hit.at) created.push(new Date(hit.at).toISOString())
+      }
+      this.photoTimes = { taken_at: taken[0] || '', created_at: created[0] || '' }
+    },
     async loadPhotos(id) {
       if (!id || this.photoLoading) return
       this.photoLoading = true
@@ -810,14 +939,19 @@ window.Views.RecordView = {
     async load() {
       const id = this.$root.route.params.id
       try {
-        const d = await Store.rpc('record_get', { p_id: Number(id) })
+        const d = await Store.rpcCached('record_get', { p_id: Number(id) })
         this.rec = d.record
+        this.loadLocalPhotoTimes(Number(id))
       } catch (e) {
         U.toast(U.errText(e), 'bad')
         Store.nav('/')
       } finally {
         this.loading = false
       }
+    },
+    photoTakeText() {
+      const t = this.photoTimes && (this.photoTimes.taken_at || this.photoTimes.created_at)
+      return t ? U.dayTime(t) : '—'
     },
   },
 }
@@ -839,7 +973,7 @@ window.Views.MyRecordsView = {
       <div class="list" v-if="list.length">
         <div class="litem" v-for="r in list" :key="r.id" @click="go('/record/' + r.id)">
           <div class="row between">
-            <div class="t1">{{ r.course_name }} <span class="muted sm">· {{ r.class_name }}</span></div>
+            <div class="t1">{{ r.course_name }} <span class="muted sm">· {{ r.class_name }}</span><span class="badge badge-warn" v-if="r.returned" style="margin-left:6px">已打回</span></div>
           </div>
           <div class="t2">{{ U.md(r.check_date) }} {{ U.weekdayCN(r.check_date) }} {{ U.periodText(r.period_from, r.period_to) }}</div>
           <div class="mt8"><span class="ibox" v-for="(c, ci) in classParts(r)" :key="c + ci">{{ c }}</span><span class="ibox ibox-ok">出勤 {{ r.actual_count }}/{{ r.expected_count }}</span></div>
@@ -868,7 +1002,7 @@ window.Views.MyRecordsView = {
         } catch (e) { /* 忽略 */ }
       }
       try {
-        const rows = mineOnly(await Store.rpc('my_records', {}))
+        const rows = mineOnly(await Store.rpcCached('my_records', {}))
         rows.sort((a, b) => (a.check_date < b.check_date ? 1 : -1))
         this.list = rows
         if (window.RecordCache) RecordCache.putAll(rows)
@@ -931,7 +1065,7 @@ window.Views.MeView = {
       <div class="list" v-if="history.length">
         <div class="litem" v-for="r in history" :key="r.id" @click="go('/record/' + r.id)">
           <div class="row between">
-            <div class="t1">{{ r.course_name }} <span class="muted sm">· {{ r.class_name }}</span></div>
+            <div class="t1">{{ r.course_name }} <span class="muted sm">· {{ r.class_name }}</span><span class="badge badge-warn" v-if="r.returned" style="margin-left:6px">已打回</span></div>
           </div>
           <div class="t2">{{ U.md(r.check_date) }} {{ U.weekdayCN(r.check_date) }} {{ U.periodText(r.period_from, r.period_to) }}</div>
           <div class="mt8"><span class="ibox" v-for="(c, ci) in classParts(r)" :key="c + ci">{{ c }}</span><span class="ibox ibox-ok">出勤 {{ r.actual_count }}/{{ r.expected_count }}</span></div>
@@ -998,7 +1132,7 @@ window.Views.MeView = {
         } catch (e) { /* 忽略 */ }
       }
       try {
-        const list = mineOnly(await Store.rpc('my_records', {}))
+        const list = mineOnly(await Store.rpcCached('my_records', {}))
         list.sort((a, b) => (a.check_date < b.check_date ? 1 : -1))
         this.history = list
         if (window.RecordCache) RecordCache.putAll(list)

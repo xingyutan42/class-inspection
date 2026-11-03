@@ -23,11 +23,6 @@
     return WD[new Date(Date.UTC(p[0], p[1] - 1, p[2])).getUTCDay()]
   }
 
-  function period(f, t) {
-    if (!f) return ''
-    return f === t ? `第${f}节` : `第${f}-${t}节`
-  }
-
   function fitCols(rows, min) {
     const width = []
     rows.forEach((row) => {
@@ -60,7 +55,7 @@
   }
   const RED = { rgb: 'FFFF0000' }
   const WRAP = { vertical: 'center', wrapText: true }
-  const NOTES = '注意事项：1、样表不得修改，课检信息录入到下一栏\n         2、注意录入信息的格式，需与样表完全一致！\n         3、课检班级栏：分子为班级实到人数，分母为该班级的应到人数\n         4、课检课程一般为必修课\n         5、旷到率最高、评分最低在备注中体现，统一标为淡黄色'
+  const NOTES = '注意事项：1、样表不得修改， 课检信息录入到下一栏\n         2、注意录入信息的格式，需与样表完全一致！ \n         3、课检班级栏：分子为班级实到人数，分母为该班级的应到人数\n         4、课检课程一般为必修课\n         5、旷到率最高、评分最低在备注中体现，统一标为淡黄色'
 
   const HEAD = ['组号', '课程名', '课程主要内容及标题', '任课老师', '教室及课检时间', '', '课检班级', '应到人数', '实到人数',
     '旷到人数、比率及详情', '', '', '请假人数及详情', '', '玩手机人数', '睡觉人数', '教师上课情况', '学生上课情况',
@@ -108,15 +103,23 @@
     return GRADES.filter((g) => set[g])
   }
 
+  // 课检班级按学校样表格式：前缀||班号（班号去前导零），如 13002609 → 130026||9
+  function classCodeText(code) {
+    const s = String(code || '').trim()
+    if (!/^[A-Za-z0-9]{8}$/.test(s)) return s
+    return s.slice(0, 6) + '||' + String(Number(s.slice(6)) || 0)
+  }
+
   function classLines(r) {
     const parts = []
     const cls = Array.isArray(r.classes) ? r.classes : []
     cls.forEach((c) => {
-      parts.push(`${(c && c.code) || ''}（${(c && Number(c.actual)) || 0}/${(c && Number(c.expected)) || 0}）`)
+      parts.push(`${classCodeText((c && c.code) || '')}（${(c && Number(c.actual)) || 0}/${(c && Number(c.expected)) || 0}）`)
     })
     const oe = Number(r.other_expected) || 0
-    if (oe > 0) parts.push(`其他（${Number(r.other_actual) || 0}/${oe}）`)
+    const oa = Number(r.other_actual) || 0
     if (!parts.length) parts.push(`${r.class_name || ''}（${Number(r.actual_count) || 0}/${Number(r.expected_count) || 0}）`)
+    parts.push(`其他（${oa}/${oe}）`)
     return parts.join('\n')
   }
 
@@ -188,8 +191,10 @@
     list.forEach((r) => rows.push(buildRow(r)))
     const ws = window.XLSX.utils.aoa_to_sheet(rows)
     ws['!cols'] = COLW.map((w) => ({ wch: w }))
+    // 行高按模板：说明行 135、表头 60、数据行 150
+    ws['!rows'] = rows.map((_, i) => (i === 0 ? { hpt: 135 } : (i === 1 ? { hpt: 60 } : { hpt: 150 })))
     ws['!merges'] = [
-      { s: { r: 0, c: 0 }, e: { r: 0, c: 23 } },   // A1:X1 注意事项
+      { s: { r: 0, c: 0 }, e: { r: 0, c: 25 } },   // A1:Z1 注意事项（同模板）
       { s: { r: 1, c: 4 }, e: { r: 1, c: 5 } },    // E2:F2 教室及课检时间
       { s: { r: 1, c: 9 }, e: { r: 1, c: 11 } },   // J2:L2 旷到人数、比率及详情
       { s: { r: 1, c: 12 }, e: { r: 1, c: 13 } },  // M2:N2 请假人数及详情
@@ -224,7 +229,7 @@
         const addr = window.XLSX.utils.encode_cell({ r: i, c })
         if (!ws[addr]) continue
         ws[addr].s = base
-        if (c === 10 && ws[addr].v !== '' && ws[addr].v !== undefined) ws[addr].z = '0.00%'
+        if (c === 10 && ws[addr].v !== '' && ws[addr].v !== undefined) ws[addr].z = '0.0%'
         const isRed =
           (c === 9 && Number(v[9]) > 0) ||          // 旷到人数
           (c === 11 && v[11] && v[11] !== '无') ||  // 旷到详情

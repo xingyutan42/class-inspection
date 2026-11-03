@@ -90,12 +90,15 @@ window.Views.HomeView = {
     </section>
 
     <section class="card hm-panel" v-if="!isAdmin">
-      <div class="hd"><h2>选课</h2><span class="tiny muted">本周已选 {{ weekPlanCount }} 节</span></div>
-      <p class="hm-hint">周五下午 5 点开放下一周选课，工作日直接填结果。</p>
+      <div class="hd"><h2>选课</h2></div>
+      <div class="hm-infobox">
+        <div class="row between"><span class="muted">本周已选</span><b class="num">{{ weekPlanCount }} 节</b></div>
+        <div class="tiny muted mt8">周五下午 5 点开放下一周选课，工作日直接填结果。</div>
+      </div>
       <button class="btn btn-danger btn-block mt8" v-if="returnedCount" @click="goReturned">
         被打回的课 {{ returnedCount }} 节 · 查看并重新提交 ›
       </button>
-      <button class="btn btn-change btn-block btn-lg mt8" @click="goMyPlans">更改已选课程</button>
+      <button class="btn btn-change btn-block mt8" @click="goMyPlans">更改已选课程</button>
       <button class="btn btn-primary btn-block mt8" @click="goPlanNew">{{ isWeekend ? '选下周要查的课' : '新增查课计划' }}</button>
     </section>
 
@@ -163,7 +166,6 @@ window.Views.HomeView = {
       if (this.isWeekend && this.week + 1 > Store.weekMax()) { U.toast('已到学期最后一周，无法再选下周'); return }
       Store.nav('/plan/new')
     },
-    goExtra() { Store.nav('/fill/new') },
     goSettings() { Store.nav('/settings') },
     fill(p) {
       if (p.note && !this.noteNeedsFill(p)) Store.nav('/plan/' + p.id)
@@ -172,14 +174,12 @@ window.Views.HomeView = {
     async load() {
       this.week = Store.weekNow()
       try {
-        const nextW = this.week + 1
-        const canNext = this.sem && nextW <= this.sem.total_weeks
-        const [due, wk, his, wkNext] = await Promise.all([
-          Store.rpc('my_due', {}),
-          this.sem ? Store.rpc('my_week', { p_week: this.week }) : Promise.resolve({ plans: [] }),
-          Store.rpc('my_history', { p_limit: 60 }),
-          canNext ? Store.rpc('my_week', { p_week: nextW }) : Promise.resolve({ plans: [] }),
-        ])
+        // 一次请求拿回 待填 + 本周 + 下周 + 历史（原为 4 个请求）
+        const home = await Store.rpcCached('my_home', {}, 30000)
+        const due = home.due || []
+        const wk = home.week || { plans: [] }
+        const wkNext = home.next || { plans: [] }
+        const his = home.history || { rows: [], total: 0 }
         const seen = {}
         this.due = (due || []).filter((p) => {
           const k = [p.check_date, p.period_from, p.period_to, p.course_name, p.class_name].join('|')
@@ -284,13 +284,13 @@ window.Views.PlanFormView = {
           <span class="cls-grades" v-if="gradeText">{{ gradeText }}</span>
         </label>
 
-        <div class="hint" style="margin:-2px 0 8px">请把这节课所有被查班级都填上（人数较多的班级也要填）。</div>
+        <div class="hint" style="margin:-2px 0 8px">请把这节课所有被查班级都填上（人数较多的班级也要填），<b>每班应到填 1~50 人</b>。</div>
         <div class="hint" v-if="dutyClassList.length">你的负责班级：{{ dutyClassList.join(' / ') }}。请优先填写这些班级；其他被查班级也可手动输入。</div>
         <div class="cls-row" v-for="(c, i) in form.classes" :key="i">
           <input class="input" v-model="c.code" maxlength="8" inputmode="numeric"
                  placeholder="如：13002605" @input="normCode(i)" :ref="'code' + i">
           <input class="input cls-num" v-if="c.code.length === 8" v-model="c.expected"
-                 inputmode="numeric" placeholder="应到" :ref="'exp' + i" @keyup.enter="onExpectedEnter(i)">
+                 inputmode="numeric" placeholder="应到 1~50" :ref="'exp' + i" @keyup.enter="onExpectedEnter(i)">
           <button type="button" class="cls-add" v-if="canAdd(i)" @click="addClass" title="新增一个班级">＋</button>
         </div>
 
@@ -471,7 +471,7 @@ window.Views.PlanFormView = {
     makeManual() { if (this.totalAuto) this.totalAuto = false },
     async load() {
       try {
-        const d = await Store.rpc('my_due', {})
+        const d = await Store.rpcCached('my_due', {})
         const row = (d || []).find((x) => String(x.id) === String(this.id))
         if (!row) { U.toast('计划不存在或已填报', 'bad'); return Store.nav('/') }
         this.planStatus = row.status
@@ -506,7 +506,8 @@ window.Views.PlanFormView = {
       for (const c of rows) {
         if (c.code.length !== 8) return '班级号必须是 8 位数字'
         if (String(c.expected).trim() === '') return '请填写每个班的应到人数'
-        if (Number(c.expected) < 0) return '应到人数不能为负'
+        const exp = Number(c.expected)
+        if (!Number.isFinite(exp) || exp < 1 || exp > 50) return c.code + ' 的应到人数需在 1~50 之间（单班最多 50 人）'
       }
       if (String(this.form.other_expected).trim() === '') return '请填写其他类应到人数'
       if (Number(this.form.other_expected) < 0) return '其他类人数不能为负'
@@ -546,6 +547,7 @@ window.Views.PlanFormView = {
         if (this.id) payload.id = this.id
         const row = await Store.rpc('plan_save', { p_payload: payload })
         U.toast('已保存到第 ' + row.week_no + ' 周')
+        Store.clearRpcCache()
         if (this.id) Store.nav('/')
         else this.doneShow = true
       } catch (e) {
@@ -573,6 +575,7 @@ window.Views.PlanFormView = {
       try {
         await Store.rpc('plan_void', { p_id: Number(this.id) })
         U.toast('已取消')
+        Store.clearRpcCache()
         Store.nav('/')
       } catch (e) { U.toast(U.errText(e), 'bad') }
     },
@@ -694,8 +697,8 @@ window.Views.MyPlansView = {
       if (!Store.store.semester) return
       try {
         const [wk, wkNext] = await Promise.all([
-          Store.rpc('my_week', { p_week: this.week }),
-          this.nextWeek <= this.maxWeek ? Store.rpc('my_week', { p_week: this.nextWeek }) : Promise.resolve({ plans: [] }),
+          Store.rpcCached('my_week', { p_week: this.week }),
+          this.nextWeek <= this.maxWeek ? Store.rpcCached('my_week', { p_week: this.nextWeek }) : Promise.resolve({ plans: [] }),
         ])
         this.currentPlans = (wk.plans || []).slice().sort((a, b) => (a.check_date < b.check_date ? -1 : 1))
         this.nextPlans = ((wkNext && wkNext.plans) || []).slice().sort((a, b) => (a.check_date < b.check_date ? -1 : 1))
@@ -745,7 +748,7 @@ window.Views.MyReturnedView = {
     handle(p) { Store.nav((this.needFill(p) ? '/fill/' : '/plan/') + p.id) },
     async load() {
       try {
-        const rows = await Store.rpc('my_due', {})
+        const rows = await Store.rpcCached('my_due', {})
         this.items = (rows || []).filter((p) => p.note).slice().sort((a, b) => (a.check_date < b.check_date ? -1 : 1))
       } catch (e) { U.toast(U.errText(e), 'bad') }
     },

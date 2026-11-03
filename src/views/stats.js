@@ -202,7 +202,7 @@ window.Views.ClassStatsView = {
       this.loading = true
       this.err = ''
       try {
-        this.data = await Store.rpc('class_stats_week', {
+        this.data = await Store.rpcCached('class_stats_week', {
           p_user_id: null,
           p_week_from: this.selFrom,
           p_week_to: this.selTo,
@@ -214,7 +214,7 @@ window.Views.ClassStatsView = {
         const msg = U.errText(e)
         if (/接口暂时不可用/.test(msg)) {
           try {
-            const d = await Store.rpc('class_stats', { p_user_id: null })
+            const d = await Store.rpcCached('class_stats', { p_user_id: null })
             const all = []
             const cov = []
             ;(d.members || []).forEach((m) => {
