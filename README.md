@@ -99,7 +99,17 @@ psql "<你的数据库连接串>" -f db/schema.sql
 psql "<连接串>" -f db/migrate-counselor-map.example.sql
 ```
 
-### 3. 配置并启动
+### 3. 加载演示数据（可选）
+
+想先看效果再接入真实名单？执行（全部虚构数据，密码 = 学号）：
+
+```bash
+psql "<你的数据库连接串>" -f db/demo-data.sql
+```
+
+登录账号一览：组长 `20990001`，组员 `20990002` ~ `20990009`，测试账号 `TEST001`。演示库含本周/上周的查课记录、含打回备注的计划与虚构辅导员映射，管理员视角可直接体验。
+
+### 4. 配置并启动
 
 复制配置模板并填入你的服务地址与 publishable key（`config.js` 已被 `.gitignore` 忽略，真实配置不会进入仓库）：
 
@@ -123,7 +133,7 @@ python -m http.server 8080
 # 打开 http://localhost:8080
 ```
 
-### 4. 跑测试
+### 5. 跑测试
 
 ```bash
 node tests/week.test.mjs
@@ -157,6 +167,7 @@ login-website/             独立登录落地页（忘记密码指引）
 vendor/                    Vue 3 / 云 SDK / SheetJS（自托管）
 db/
   schema.sql               完整建库脚本（幂等）
+  demo-data.sql            演示数据（全部虚构，密码=学号）
   migrate-*.sql            功能增量脚本
   migrate-counselor-map.example.sql  辅导员映射示例
 docs/
