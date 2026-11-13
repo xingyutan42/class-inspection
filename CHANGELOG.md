@@ -1,6 +1,29 @@
 # 更新日志
 
-本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 格式，版本号沿用前端资源版本串（`index.html` 的 `?v=`）。
+本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 格式。v20261102 及之前使用日期串版本号（如 `20261102c`），**3.9.0 起改用语义化版本**。
+
+## [3.9.0] - 2026-11-13
+
+### 新增
+
+- **照片转对象存储**：有平台身份（`sdk_uid`）的账号，新照片直接上传到 `shared/<uid>/checks/` 并以路径入库（新增 `photo_add_storage` RPC、`check_record_photos.taken_at` 列）；无身份的旧账号继续走 base64 兜底，两条路并存互不影响
+- **Service Worker 离线缓存**：新增 `sw.js`，静态资源按 `xfc-<版本>` 缓存，弱网/断网时页面仍可打开
+- **照片存储路由模块**：`src/lib/media.js`，统一决定走对象存储还是 base64
+
+### 变更
+
+- 版本号体系：日期串 → 语义化版本（`3.9.0`），`index.html` 的 `?v=`、`src/config.js` 的 `version`、`sw.js` 的 `CACHE_NAME` 三处同步
+- 照片上传失败不再静默：逐张 toast 提示失败原因
+
+### 修复
+
+- 严格判断上传返回值 `{data, error}`，避免静默丢失照片
+
+## [3.8.x] - 2026-11-08 ~ 2026-11-11
+
+- 3.8.2：课程认领环节免旧密码校验
+- 3.8.3：网络状态提示条 + 草稿保护完善
+- 3.8.5：台账导入与回写的内部执行版本
 
 ## [v20261102c] - 2026-11-03
 

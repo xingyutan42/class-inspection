@@ -5,6 +5,7 @@
 **一套开箱即用的班级课堂检查管理系统 —— 组员登记选课、填报结果，管理员看进度、管打回、一键导出台账**
 
 [![Test](https://github.com/xingyutan42/class-inspection/actions/workflows/test.yml/badge.svg)](https://github.com/xingyutan42/class-inspection/actions/workflows/test.yml)
+[![Version](https://img.shields.io/badge/version-3.9.0-blue)](https://github.com/xingyutan42/class-inspection/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Vue 3](https://img.shields.io/badge/Vue-3.x-4FC08D?logo=vuedotjs&logoColor=white)](https://vuejs.org)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-14+-336791?logo=postgresql&logoColor=white)](https://postgresql.org)
@@ -37,8 +38,9 @@
 - 🗓️ **新增选课** —— 教学周自动计算，星期/节次 chips 点选（1–12 节任意起止），预计到岗时间二选一
 - 👥 **被查班级多行录入** —— 8 位班级号自动识别年级（26→大一 / 25→大二 / 24→大三），逐班填应到人数，"其他类"单独计数
 - 📝 **填报结果** —— 应到/实到只读自动守恒（应到 = 实到 + 旷课 + 请假），旷课/请假逐人登记班级姓名，课堂纪律 6 项 + 评分 2 项共 8 个「确定键」防漏填，老师/学生评分（9.0–10.0）
-- 📷 **现场照片** —— 前端压缩（≤500KB）+ 25KB 缩略图 + IndexedDB 本地缓存，看过的不走第二次流量；时间与姓名水印烧进像素，旧图无法替换；记录详情展示拍摄 / 提交时间（只取元数据，零额外流量）
+- 📷 **现场照片** —— 前端压缩（≤500KB）+ 25KB 缩略图；**有平台身份的照片直传对象存储**（`shared/<uid>/checks/`），无身份账号走 base64 兜底，两条路都可用；IndexedDB 本地缓存，看过的不走第二次流量；时间与姓名水印烧进像素，旧图无法替换；记录详情展示拍摄 / 提交时间（只取元数据，零额外流量）
 - 💾 **草稿本机保存** —— 选课与填报中途被打断，内容自动存在本机（IndexedDB，不上云），下次进入一键恢复；保留 7 天、最多 12 份，提交成功即清除
+- 📴 **离线与弱网** —— Service Worker 缓存静态资源（`xfc-<版本>`），断网/弱网时页面仍可打开，顶部提示网络状态
 - 🔁 **打回重交** —— 填错不用删了重写：管理员打回并留言原因，成员在原记录上修改（数据预填、照片保留），重交后管理员端亮起「重交」标记
 - ⚙️ **设置** —— 设置页改密、退出登录
 
@@ -63,17 +65,19 @@
 
 ```text
 ┌─────────────────────────────────────────────────┐
-│  浏览器（移动优先）                                │
+│  浏览器（移动优先 + Service Worker 离线缓存）        │
 │  Vue 3 全局构建 · 手写 hash 路由 · 原生 CSS        │
-│  IndexedDB 照片/记录缓存 · SheetJS 懒加载          │
+│  IndexedDB 照片/记录/草稿 · SheetJS 懒加载          │
 └──────────────────────┬──────────────────────────┘
                        │ cloud.rpc(p_token, ...)
 ┌──────────────────────▼──────────────────────────┐
-│  PostgreSQL（Supabase 风格云库）                   │
-│  57 个 SECURITY DEFINER RPC · 全表 RLS 零策略      │
+│  PostgreSQL（Supabase 风格云库） + 对象存储         │
+│  SECURITY DEFINER RPC · 全表 RLS 零策略            │
 │  触发器算周次 / 打回闭环 · bcrypt 认证              │
 └─────────────────────────────────────────────────┘
 ```
+
+**版本号规则**：v20261102 及之前使用日期串（如 `20261102c`）；**3.9.0 起改用语义化版本**，`index.html` 的 `?v=`、`src/config.js` 的 `version`、`sw.js` 的 `CACHE_NAME` 三处同步。
 
 **为什么无构建？** 部署目标是纯静态托管：改完代码刷新即生效，发布就是上传目录，不存在"本地跑得起来、线上构建失败"的问题。全部第三方库（Vue、SDK、SheetJS）自托管在 `vendor/`，不依赖公网 CDN。
 
@@ -121,6 +125,7 @@ cp login-website/config.example.js login-website/config.js
 
 ```js
 window.APP_CONFIG = {
+  version: '3.9.0',
   endpoint: 'https://your-project.example.host',
   oauthRelayBaseUrl: 'https://your-oauth-relay',
   publishableKey: 'wbpk_xxx',
@@ -147,6 +152,7 @@ node tests/week.test.mjs
 ```
 index.html                 入口（hash 路由 + 资源版本串）
 app.css                    全部样式（移动优先，手写，hm-*/adm-* 命名空间）
+sw.js                      Service Worker（静态资源离线缓存，CACHE_NAME=xfc-<版本>）
 src/
   config.example.js        云服务配置模板（复制为 config.js，不入库）
   store.js                 全局状态 / 路由解析 / rpc 封装（带登录凭证）
@@ -155,6 +161,7 @@ src/
     util.js                日期 / 周次 / 节次 / 出勤 / 拼音排序 / 辅导员匹配
     excel.js               台账导出（xlsx-js-style，按年级分表）
     image.js               图片压缩 + 时间/姓名水印
+    media.js               照片存储路由（对象存储 / base64 兜底）
     draft.js               表单草稿本机保存（IndexedDB，7 天 / 12 份上限）
     photocache.js          照片 IndexedDB 缓存（LRU 500 张）
     recordcache.js         记录 IndexedDB 缓存（KEEP 300）
@@ -165,13 +172,12 @@ src/
     leader.js              管理员总览 / 记录详情
     leader2.js             记录修正 / 成员 / 学期 / 导出
     stats.js               班级查课次数统计
-login-website/             独立登录落地页（忘记密码指引）
+login-website/             独立登录落地页（历史版本保留）
 vendor/                    Vue 3 / 云 SDK / SheetJS（自托管）
 db/
-  schema.sql               完整建库脚本（幂等）
+  schema.sql               结构基线（截至 v20261102，幂等）
   demo-data.sql            演示数据（全部虚构，密码=学号）
-  migrate-*.sql            功能增量脚本
-  migrate-counselor-map.example.sql  辅导员映射示例
+  migrate-*.sql            功能增量脚本（含 3.x 照片对象存储、照片时间等）
 docs/
   OPERATIONS.md            运维手册（账号规则 / 名单导入 / 发布经验）
 tests/
@@ -179,6 +185,8 @@ tests/
   audit.sh                 上线前自检（语法 + 模板编译 + 事件处理器审计）
   bump.sh                  一键统一替换所有 ?v= 版本号
 ```
+
+> `db/schema.sql` 是 v20261102 的完整基线；3.x 之后的结构演进（如 `photo_add_storage`、`check_record_photos.taken_at`）以 `db/migrate-*.sql` 与对应 Release 的「迁移指引」为准。
 
 ## 🗺️ Roadmap
 

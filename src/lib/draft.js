@@ -30,7 +30,10 @@
       const st = t.objectStore(STORE)
       let out
       try { out = handler(st) } catch (e) { reject(e); return }
-      t.oncomplete = () => resolve(out && out.result !== undefined ? out.result : out)
+      // 注意：IDBRequest 的 result 在 key 不存在时就是 undefined。
+      // 早期写法 `out.result !== undefined ? out.result : out` 在这里会把 request 对象本身当结果返回，
+      // 导致「没有草稿也认为有草稿」。必须按「是不是 IDBRequest」判断，而不是看 result 是否为 undefined。
+      t.oncomplete = () => resolve(out && typeof out === 'object' && 'result' in out ? out.result : out)
       t.onerror = () => reject(t.error)
       t.onabort = () => reject(t.error || new Error('草稿事务中断'))
     }))

@@ -50,7 +50,6 @@ window.Views.AdminRecord = {
       <h1>记录详情</h1>
       <div class="side right" style="display:flex;gap:6px">
         <button class="btn btn-sm" @click="openEdit">修正</button>
-        <button class="btn btn-sm" @click="confirmDel = true">打回</button>
         <button class="btn btn-sm btn-danger" @click="confirmHard = true">删除</button>
       </div>
     </div>
@@ -62,10 +61,12 @@ window.Views.AdminRecord = {
           <div class="tiny muted mt8">第{{ rec.week_no }}周 · {{ U.md(rec.check_date) }} {{ U.weekdayCN(rec.check_date) }} {{ U.periodText(rec.period_from, rec.period_to) }}</div>
         </div>
         <span class="badge" :class="rec.is_extra ? 'badge-warn' : 'badge-pri'">{{ rec.is_extra ? '计划外' : '计划内' }}</span>
+        <span class="badge badge-warn" v-if="Number(rec.self_edit_count) > 0">本人自行改过 {{ rec.self_edit_count }} 次</span>
       </div>
       <div class="divider"></div>
       <div class="grid2 tiny">
-        <div><span class="muted">检查人</span> <span class="strong">{{ rec.owner_name }}</span></div>
+        <div><span class="muted">检查人</span> <span class="strong">{{ rec.owner_name }}</span>
+          <span v-if="rec.admin_note" class="badge badge-warn" style="margin-left:6px">{{ rec.admin_note }}</span></div>
         <div><span class="muted">教室</span> {{ rec.room || '—' }}</div>
         <div><span class="muted">任课老师</span> {{ rec.teacher || '—' }}</div>
         <div><span class="muted">辅导员</span> {{ counselorText }}</div>
@@ -171,16 +172,6 @@ window.Views.AdminRecord = {
       <div class="muted sm" v-else>暂无修改</div>
     </div>
 
-    <div class="mask mask-center" v-if="confirmDel" @click.self="confirmDel = false">
-      <div class="sheet sheet-center">
-        <h3>打回记录</h3>
-        <div class="sub" style="white-space:pre-line">打回「{{ rec.course_name }} · {{ rec.class_name }}」？\n\n记录会保留（成员可在「我的记录」里查看，标记为「已打回」），统计与导出不再计入。\n计划回到「待填报」后，成员打开会是上次填写的内容和原照片，只需修改要改的数据再提交。</div>
-        <input class="input mt8" v-model="returnReason" maxlength="60" placeholder="打回原因（可留空，默认：管理员打回记录，请修改后重新提交）">
-        <button class="btn btn-danger btn-block mt8" :disabled="busy" @click="doReturn">{{ busy ? '处理中…' : '确认打回' }}</button>
-        <button class="btn btn-block mt8" @click="confirmDel = false">取消</button>
-      </div>
-    </div>
-
     <div class="mask mask-center" v-if="confirmHard" @click.self="confirmHard = false">
       <div class="sheet sheet-center">
         <h3>彻底删除</h3>
@@ -237,20 +228,30 @@ window.Views.AdminRecord = {
           <div class="field"><label class="label">请假</label><input class="input" type="number" v-model.number="edit.leave_count" @input="syncEditStudents('leave')"></div>
         </div>
 
+        <datalist id="cls-suggest-edit">
+          <option v-for="c in classOptionsEdit" :key="c" :value="c"></option>
+        </datalist>
+
         <div class="stu-wrap" v-if="Number(edit.absent_count) > 0">
-          <div class="tiny muted mb8">旷课名单（{{ Number(edit.absent_count) || 0 }} 人）</div>
+          <div class="row between mb8">
+            <span class="tiny muted">旷课名单（{{ Number(edit.absent_count) || 0 }} 人）</span>
+            <button class="btn btn-sm" type="button" @click="pasteEditStudents('absent')">批量粘贴</button>
+          </div>
           <div class="stu-row" v-for="(s2, i) in edit.absent_students" :key="'ea' + i">
             <div class="stu-idx">第 {{ i + 1 }} 个</div>
-            <input class="input" v-model="s2.cls" maxlength="20" placeholder="班级（必填）">
+            <input class="input" list="cls-suggest-edit" v-model="s2.cls" maxlength="20" placeholder="班级（必填）">
             <input class="input" v-model="s2.name" maxlength="20" placeholder="姓名（必填）">
           </div>
         </div>
 
         <div class="stu-wrap mt12" v-if="Number(edit.leave_count) > 0">
-          <div class="tiny muted mb8">请假名单（{{ Number(edit.leave_count) || 0 }} 人）</div>
+          <div class="row between mb8">
+            <span class="tiny muted">请假名单（{{ Number(edit.leave_count) || 0 }} 人）</span>
+            <button class="btn btn-sm" type="button" @click="pasteEditStudents('leave')">批量粘贴</button>
+          </div>
           <div class="stu-row" v-for="(s2, i) in edit.leave_students" :key="'el' + i">
             <div class="stu-idx">第 {{ i + 1 }} 个</div>
-            <input class="input" v-model="s2.cls" maxlength="20" placeholder="班级（必填）">
+            <input class="input" list="cls-suggest-edit" v-model="s2.cls" maxlength="20" placeholder="班级（必填）">
             <input class="input" v-model="s2.name" maxlength="20" placeholder="姓名（必填）">
           </div>
         </div>
@@ -287,7 +288,7 @@ window.Views.AdminRecord = {
     </div>
   </div>`,
 
-  data() { return { U, returnReason: '', rec: null, revisions: [], editing: false, saving: false, err: '', edit: {}, confirmDel: false, confirmHard: false, busy: false, photos: [], photosLoaded: false, photoLoading: false, fullPhoto: null, photoTimes: null, TEACHER_OPTS: [
+  data() { return { U, rec: null, revisions: [], editing: false, saving: false, err: '', edit: {}, confirmHard: false, busy: false, photos: [], photosLoaded: false, photoLoading: false, fullPhoto: null, photoTimes: null, TEACHER_OPTS: [
     '老师备课充分，授课条理清楚，学生积极互动。',
     '老师讲解细致，节奏适中，课堂秩序良好。',
     '老师讲课认真、热情，学生积极配合老师回答问题。',
@@ -324,6 +325,20 @@ window.Views.AdminRecord = {
       if (!this.rec) return '—'
       return U.matchCounselors(Store.store.counselorMap, U.recordClassHints(this.rec)) || this.rec.counselor || '—'
     },
+    classOptionsEdit() {
+      const set = []
+      const add = (v) => {
+        String(v || '').split(/[、,，+\s]+/).forEach((x) => {
+          const t = x.trim()
+          if (t && t !== '其他' && set.indexOf(t) < 0) set.push(t)
+        })
+      }
+      ;(this.edit.classes || []).forEach((c) => add(c.code))
+      const me = Store.store.me || {}
+      add(me.duty_classes)
+      add(me.own_class)
+      return set.sort((a, b) => U.classCompare(a, b))
+    },
     sumOkEdit() {
       if (Array.isArray(this.edit.classes) && this.edit.classes.length) {
         return this.edit.classes.every((c) => {
@@ -349,12 +364,13 @@ window.Views.AdminRecord = {
         const out = []
         for (const p of list) {
           const signUrl = p.storage_path ? await Store.photoUrl(p, 600) : ''
+          const thumbSrc = p.thumb || ((p.thumb_path || p.storage_path) ? await Store.thumbUrl(p, 600) : '')
           const hit = p.storage_path ? null : (window.PhotoCache ? await PhotoCache.get(p.id) : null)
           out.push({
             id: p.id,
             created_at: p.created_at,
             taken_at: p.taken_at || null,
-            thumb: signUrl || (hit && hit.thumb) || p.thumb || '',
+            thumb: thumbSrc || (hit && hit.thumb) || signUrl || '',
             data: (hit && hit.data) || '',
           })
         }
@@ -385,21 +401,6 @@ window.Views.AdminRecord = {
         }
         this.fullPhoto = ph
       } catch (e) { U.toast(U.errText(e), 'bad') } finally { this.photoLoading = false }
-    },
-    async doReturn() {
-      this.busy = true
-      try {
-        await Store.rpc('record_return', { p_id: this.rec.id, p_reason: (this.returnReason || '').trim() || null })
-        U.toast('已打回（记录保留），成员可重新填报')
-        Store.clearRpcCache()
-        this.confirmDel = false
-        this.returnReason = ''
-        Store.nav('/admin/checks')
-      } catch (e) {
-        U.toast(U.errText(e), 'bad')
-      } finally {
-        this.busy = false
-      }
     },
     async doHardDelete() {
       this.busy = true
@@ -438,7 +439,10 @@ window.Views.AdminRecord = {
         other_expected: Number(this.rec.other_expected) || 0,
         other_actual: Number(this.rec.other_actual) || 0,
         absent_students: (this.rec.absent_students || []).map((s) => ({ cls: s.cls || '', name: s.name || '' })),
-        leave_students: (this.rec.leave_students || []).map((s) => ({ cls: s.cls || '', name: s.name || '' })),
+        // 请假原因已下线：历史 reason/note 不再读入修正表单
+        leave_students: (this.rec.leave_students || []).map((s) => ({
+          cls: s.cls || '', name: s.name || '',
+        })),
       }
       // 人数>0 但原名单不足时补齐空行，方便直接编辑
       this.syncEditStudents('absent')
@@ -446,12 +450,42 @@ window.Views.AdminRecord = {
       this.editing = true
     },
     // 人数变化时同步名单行数（加人补空行、减人截断）
+    pasteEditStudents(kind) {
+      const label = kind === 'absent' ? '旷课' : '请假'
+      const text = window.prompt(
+        `粘贴${label}名单，每行一个同学\n格式：班级 姓名（空格或逗号分隔）\n例如：\n13002608 张三`,
+        ''
+      )
+      if (!text) return
+      const rows = []
+      text.split(/\r?\n/).forEach((line) => {
+        const t = line.trim()
+        if (!t) return
+        const parts = t.split(/[\s,，\t]+/).filter(Boolean)
+        if (!parts.length) return
+        rows.push({ cls: parts[0], name: parts.slice(1).join('') })
+      })
+      if (!rows.length) { U.toast('没识别到内容', 'bad'); return }
+      const cntKey = kind === 'absent' ? 'absent_count' : 'leave_count'
+      const key = kind === 'absent' ? 'absent_students' : 'leave_students'
+      this.edit[key] = rows
+      this.edit[cntKey] = rows.length
+      U.toast(`已导入 ${rows.length} 条${label}名单`)
+    },
     syncEditStudents(kind) {
       const cntKey = kind === 'absent' ? 'absent_count' : 'leave_count'
       const key = kind === 'absent' ? 'absent_students' : 'leave_students'
       const n = Math.max(0, Math.min(Number(this.edit[cntKey]) || 0, 100))
-      this.edit[cntKey] = n
       const arr = this.edit[key] || (this.edit[key] = [])
+      if (arr.length > n) {
+        const dropped = arr.slice(n)
+        const hasData = dropped.some((x) => String(x.cls || '').trim() || String(x.name || '').trim())
+        if (hasData && !window.confirm(`人数减少，将删除最后 ${dropped.length} 条已填名单，确定？`)) {
+          this.edit[cntKey] = arr.length
+          return
+        }
+      }
+      this.edit[cntKey] = n
       while (arr.length < n) arr.push({ cls: '', name: '' })
       if (arr.length > n) arr.splice(n)
     },
@@ -507,7 +541,10 @@ window.Views.AdminRecord = {
             absent_count: Number(this.edit.absent_count) || 0,
             leave_count: Number(this.edit.leave_count) || 0,
             absent_students: this.edit.absent_students || [],
-            leave_students: this.edit.leave_students || [],
+            // 请假名单只提交班级与姓名（原因字段已下线）
+            leave_students: (this.edit.leave_students || []).map((s) => ({
+              cls: s.cls, name: s.name,
+            })),
             remark: this.edit.remark || '',
             discipline_note: this.edit.discipline_note || '',
             teacher_status: this.edit.teacher_status || '',
@@ -580,13 +617,16 @@ window.Views.AdminMembers = {
               <td class="strong">{{ m.name }}<span class="badge badge-warn" v-if="m.must_change" style="margin-left:6px">未改密</span></td>
               <td class="num">{{ m.student_no }}</td>
               <td>{{ m.title || '—' }}</td>
-              <td><span class="badge" :class="m.role === 'admin' ? 'badge-pri' : ''">{{ m.role === 'admin' ? '管理员' : '组员' }}</span></td>
+              <td>
+                <span class="badge" :class="m.role === 'admin' ? 'badge-pri' : ''">{{ m.role === 'admin' ? '管理员' : '组员' }}</span>
+                <span class="badge" :class="m.has_email ? 'badge-ok' : 'badge-warn'" style="margin-left:4px">{{ m.has_email ? '已绑邮箱' : '未绑邮箱' }}</span>
+              </td>
               <td><span class="badge" :class="m.status === 'active' ? 'badge-ok' : 'badge-bad'">{{ m.status === 'active' ? '在用' : '已停用' }}</span></td>
               <td class="tiny muted">{{ m.last_login_at ? U.dayTime(m.last_login_at) : '从未' }}</td>
               <td>
                 <div class="row" style="gap:6px">
                   <button class="btn btn-sm" @click="toggleRole(m)">{{ m.role === 'admin' ? '降为组员' : '设为管理员' }}</button>
-                  <button class="btn btn-sm" @click="resetPwd(m)">重置密码</button>
+                  <button class="btn btn-sm" v-if="m.has_email" @click="unbindEmail(m)">解绑邮箱</button>
                   <button class="btn btn-sm" :class="m.status === 'active' ? 'btn-danger' : ''" @click="toggleStatus(m)">
                     {{ m.status === 'active' ? '停用' : '恢复' }}
                   </button>
@@ -614,12 +654,13 @@ window.Views.AdminMembers = {
             <div class="mem-meta">
               <span>{{ m.title || '—' }}</span>
               <span class="badge" :class="m.role === 'admin' ? 'badge-pri' : ''">{{ m.role === 'admin' ? '管理员' : '组员' }}</span>
+              <span class="badge" :class="m.has_email ? 'badge-ok' : 'badge-warn'">{{ m.has_email ? '已绑邮箱' : '未绑邮箱' }}</span>
               <span class="badge" :class="m.status === 'active' ? 'badge-ok' : 'badge-bad'">{{ m.status === 'active' ? '在用' : '已停用' }}</span>
               <span>{{ m.last_login_at ? U.dayTime(m.last_login_at) : '从未登录' }}</span>
             </div>
             <div class="mem-acts">
               <button class="btn btn-sm" @click="toggleRole(m)">{{ m.role === 'admin' ? '降为组员' : '设为管理员' }}</button>
-              <button class="btn btn-sm" @click="resetPwd(m)">重置密码</button>
+              <button class="btn btn-sm" v-if="m.has_email" @click="unbindEmail(m)">解绑邮箱</button>
               <button class="btn btn-sm" :class="m.status === 'active' ? 'btn-danger' : ''" @click="toggleStatus(m)">
                 {{ m.status === 'active' ? '停用' : '恢复' }}
               </button>
@@ -652,7 +693,7 @@ window.Views.AdminMembers = {
     </div>
 
     <div class="tiny muted mt12">
-      初始密码为本人学号，首次登录强制修改密码。忘记密码请联系管理员，由管理员在成员管理中重置为学号，登录后需重新设密。
+      初始密码为本人学号，建议首次登录后自行修改（不强制）。忘记密码请联系管理员，由管理员在成员管理中重置为学号，登录后建议重新设密。
     </div>
   </div>`,
 
@@ -686,7 +727,7 @@ window.Views.AdminMembers = {
     },
     inviteText() {
       const link = location.origin + location.pathname
-      return `【学风建设系统使用说明】\n1. 手机浏览器打开：${link}\n2. 账号是你的姓名，初始密码是你的学号\n3. 首次登录会强制修改密码，请立即设置新密码\n4. 周末先「选下周要查的课」，工作日回来填写查课结果\n5. 忘记密码：联系管理员，在成员管理中重置为你的学号，登录后需重新设密`
+      return `【学风建设系统使用说明】\n1. 手机浏览器打开：${link}\n2. 账号是你的姓名，初始密码是你的学号\n3. 初始密码是学号，建议登录后在「我的 → 设置」改成只有你知道的密码\n4. 周末先「选下周要查的课」，工作日回来填写查课结果\n5. 忘记密码：联系管理员，在成员管理中重置为你的学号，登录后建议重新设密`
     },
   },
   mounted() { this.load() },
@@ -702,14 +743,18 @@ window.Views.AdminMembers = {
     async load() {
       try { this.users = await Store.rpcCached('staff_list', {}, 120000) || [] } catch (e) { U.toast(U.errText(e), 'bad') }
     },
-    resetPwd(m) {
+    // 3.3：删掉「重置密码」——SDK 是唯一身份来源，改业务库 password_hash 对邮箱登录无效。
+    // 解绑邮箱：清空绑定，账号进入「待认领」状态。
+    // 3.8.1 起姓名登录已在服务端关闭，所以解绑后用户不能再用姓名登录，
+    // 必须让本人用「姓名 + 学号」重新认领邮箱（认领会同时设置新密码）。
+    unbindEmail(m) {
       this.confirmAct = {
-        title: '重置密码',
-        desc: `将「${m.name}」的密码重置为其学号？\n\n重置后对方会被强制下线，用学号登录后需立即修改密码。`,
-        okText: '重置',
+        title: '解绑邮箱',
+        desc: `将「${m.name}」的邮箱（${m.email || '已绑定'}）解绑？\n\n解绑后会做三件事：\n· 清空邮箱绑定，账号进入「待认领」状态\n· 请让本人用「姓名 + 学号」重新认领邮箱，认领时设置新密码\n· 写一条操作留痕\n\n注意：姓名登录已关闭，解绑后本人不能用姓名登录，只能走认领。\n历史记录、照片、课检数据都不受影响。`,
+        okText: '解绑',
         run: async () => {
-          await Store.rpc('staff_reset_password', { p_id: m.id })
-          U.toast('已重置为学号，对方登录后需改密')
+          await Store.rpc('admin_unbind_email', { p_user_id: m.id })
+          U.toast('已解绑，请让本人用姓名 + 学号重新认领邮箱')
           Store.clearRpcCache()
           this.load()
         },
@@ -813,10 +858,53 @@ window.Views.AdminSemesters = {
         <div class="muted sm" v-if="!list.length">还没有学期，请先新增</div>
       </div>
     </div>
+
+    <!-- 3.5 选课时间窗口设置（PRD §5.3：四个输入 + 总开关 + 当前状态实时预览） -->
+    <div class="card">
+      <div class="hd"><h2>选课时间窗口</h2><span class="tiny muted">{{ gateWin ? (gateWin.open ? '当前已开放' : '当前已关闭') : '' }}</span></div>
+      <div class="field">
+        <label class="label">总开关</label>
+        <div class="chips">
+          <div class="chip" :class="{ on: gateForm.plan_gate_on }" @click="gateForm.plan_gate_on = true">开启</div>
+          <div class="chip" :class="{ on: !gateForm.plan_gate_on }" @click="gateForm.plan_gate_on = false">关闭（全天开放）</div>
+        </div>
+        <div class="hint">关闭后选课行为与旧版完全一致（应急回滚开关）；开启后仅在下方时间窗内可新增选课，已选课程随时可改。</div>
+      </div>
+      <div class="row" style="gap:8px">
+        <div class="field grow">
+          <label class="label">开放星期</label>
+          <select class="input" v-model.number="gateForm.plan_open_wd">
+            <option v-for="(w, i) in WDS" :key="'o' + i" :value="i + 1">{{ w }}</option>
+          </select>
+        </div>
+        <div class="field grow">
+          <label class="label">开放时刻</label>
+          <input class="input" type="time" v-model="gateForm.plan_open_at">
+        </div>
+      </div>
+      <div class="row" style="gap:8px">
+        <div class="field grow">
+          <label class="label">关闭星期</label>
+          <select class="input" v-model.number="gateForm.plan_close_wd">
+            <option v-for="(w, i) in WDS" :key="'c' + i" :value="i + 1">{{ w }}</option>
+          </select>
+        </div>
+        <div class="field grow">
+          <label class="label">关闭时刻</label>
+          <input class="input" type="time" v-model="gateForm.plan_close_at">
+        </div>
+      </div>
+      <div class="sub" v-if="gateWin" style="color:var(--pri)">当前状态：{{ gateWin.nextOpenText }}（{{ gateWin.openText }} → {{ gateWin.closeText }}）</div>
+      <div class="tiny muted" v-else-if="!gateWin">正在读取窗口状态…</div>
+      <button class="btn btn-primary btn-block mt8" :disabled="gateBusy" @click="saveGate">保存窗口设置</button>
+    </div>
   </div>`,
 
-  data() { return { U, list: [], busy: false, form: { id: '', name: '', start_monday: '', total_weeks: 18 } } },
-  mounted() { this.load() },
+  data() { return { U, list: [], busy: false, form: { id: '', name: '', start_monday: '', total_weeks: 18 },
+    WDS: ['周一', '周二', '周三', '周四', '周五', '周六', '周日'],
+    gateForm: { plan_gate_on: true, plan_open_wd: 5, plan_open_at: '17:00', plan_close_wd: 7, plan_close_at: '23:59' },
+    gateWin: null, gateBusy: false } },
+  mounted() { this.load(); this.loadGate() },
   methods: {
     go(p) { Store.nav(p) },
     reset() { this.form = { id: '', name: '', start_monday: '', total_weeks: 18 } },
@@ -853,6 +941,33 @@ window.Views.AdminSemesters = {
         await Store.refresh()
       } catch (e) { U.toast(U.errText(e), 'bad') }
     },
+    // ---------- 3.5 选课时间窗口 ----------
+    async loadGate() {
+      try {
+        const cfg = await Store.rpc('admin_config_get', {})
+        if (cfg) this.gateForm = {
+          plan_gate_on: !!cfg.plan_gate_on,
+          plan_open_wd: Number(cfg.plan_open_wd) || 5,
+          plan_open_at: cfg.plan_open_at || '17:00',
+          plan_close_wd: Number(cfg.plan_close_wd) || 7,
+          plan_close_at: cfg.plan_close_at || '23:59',
+        }
+        this.gateWin = await Store.rpc('app_plan_window', {}, true)
+      } catch (e) { this.gateWin = null; U.toast(U.errText(e), 'bad') }
+    },
+    async saveGate() {
+      const f = this.gateForm
+      if (!f.plan_open_at || !f.plan_close_at) return U.toast('请填写开放与关闭时刻', 'bad')
+      if (f.plan_gate_on && f.plan_open_wd === f.plan_close_wd && f.plan_open_at === f.plan_close_at) {
+        return U.toast('开放与关闭时刻相同，窗口永远为空，请调整', 'bad')
+      }
+      this.gateBusy = true
+      try {
+        this.gateWin = await Store.rpc('admin_config_save', { p_payload: { ...f } })
+        U.toast('已保存，状态预览已刷新')
+        Store.clearRpcCache()
+      } catch (e) { U.toast(U.errText(e), 'bad') } finally { this.gateBusy = false }
+    },
   },
 }
 
@@ -866,16 +981,23 @@ window.Views.AdminExport = {
     </div>
 
     <div class="card mt12">
-      <div class="hd"><h2>选择周次</h2><span class="tiny muted">{{ sem ? sem.name : '' }}</span></div>
-      <div class="row wrap">
-        <select class="select" style="max-width:150px" v-model.number="week">
-          <option v-for="w in weekList" :key="w" :value="w">第 {{ w }} 周</option>
-        </select>
-        <button class="btn btn-sm" @click="shiftWeek(-1)">上周</button>
-        <button class="btn btn-sm" @click="shiftWeek(0)">本周</button>
-        <button class="btn btn-sm" @click="shiftWeek(1)">下周</button>
+      <div class="hd"><h2>选择范围</h2><span class="tiny muted">{{ sem ? sem.name : '' }}</span></div>
+      <div class="chips mt8">
+        <div class="chip" :class="{ on: mode === 'this' }" @click="setMode('this')">本周</div>
+        <div class="chip" :class="{ on: mode === 'last' }" :style="canLast ? '' : 'opacity:.45;pointer-events:none'"
+             @click="setMode('last')">上周</div>
+        <div class="chip" :class="{ on: mode === 'range' }" @click="setMode('range')">区间</div>
       </div>
-      <div class="hint">按周导出：包含「大一 / 大二 / 大三」三个工作表，按查课时间排序。</div>
+      <div class="row wrap mt8" v-if="mode === 'range'">
+        <select class="select" style="max-width:130px" v-model.number="from" @change="preview()">
+          <option v-for="w in weekList" :key="'f' + w" :value="w">第 {{ w }} 周</option>
+        </select>
+        <span class="muted">至</span>
+        <select class="select" style="max-width:130px" v-model.number="to" @change="preview()">
+          <option v-for="w in weekList" :key="'t' + w" :value="w">第 {{ w }} 周</option>
+        </select>
+      </div>
+      <div class="hint">{{ rangeHint }}</div>
     </div>
 
     <div class="card">
@@ -897,7 +1019,13 @@ window.Views.AdminExport = {
     </button>
   </div>`,
 
-  data() { return { week: 0, busy: false, loading: false, count: null, summary: '', gradeCounts: { '大一': 0, '大二': 0, '大三': 0 } } },
+  data() {
+    return {
+      // 三种范围：this=本周（默认） / last=上周 / range=按周次区间
+      mode: 'this', from: 0, to: 0,
+      busy: false, loading: false, count: null, summary: '', gradeCounts: { '大一': 0, '大二': 0, '大三': 0 },
+    }
+  },
   computed: {
     sem() { return Store.store.semester },
     weekList() {
@@ -906,27 +1034,53 @@ window.Views.AdminExport = {
       for (let w = 1; w <= max; w++) list.push(w)
       return list
     },
+    curWeek() {
+      const max = Store.store.semester ? Store.store.semester.total_weeks : 18
+      return Math.max(1, Math.min(max, Store.weekNow() || 1))
+    },
+    canLast() { return this.curWeek > 1 },
+    rangeHint() {
+      const [a, b] = this.range()
+      const scope = a === b ? `第 ${a} 周` : `第 ${a}-${b} 周`
+      return `${scope} · 包含「大一 / 大二 / 大三」三个工作表，按查课时间排序`
+    },
   },
   mounted() {
-    this.week = Store.weekNow() || 1
+    const cur = this.curWeek
+    this.from = cur
+    this.to = cur
+    if (this.mode === 'last' && !this.canLast) this.mode = 'this'
+    this.preview()
     // 提前加载 SheetJS，避免点「生成并下载」时因异步加载丢失用户手势导致不触发下载
     XLS.loadXLSX().catch(() => {})
   },
   watch: {
-    // 进入页面（首次赋值）与切换周次时自动统计，无需手动点「预览数量」
-    week() { this.preview() },
+    // 进入页面与切换范围时自动统计，无需手动点「预览数量」
+    mode() { this.preview() },
   },
   methods: {
     go(p) { Store.nav(p) },
-    shiftWeek(d) {
-      const max = Store.store.semester ? Store.store.semester.total_weeks : 18
-      const base = d === 0 ? (Store.weekNow() || 1) : (this.week + d)
-      this.week = Math.max(1, Math.min(max, base))
+    setMode(m) {
+      if (m === 'last' && !this.canLast) return
+      this.mode = m
+      if (m === 'range') {
+        const cur = this.curWeek
+        if (!this.from) this.from = cur
+        if (!this.to) this.to = cur
+      }
     },
+    // 统一出口：所有取数都走这里，避免「显示的范围」与「实际取数」不一致
     range() {
       const max = Store.store.semester ? Store.store.semester.total_weeks : 18
-      const w = Math.max(1, Math.min(max, this.week | 0))
-      return [w, w]
+      const clamp = (v) => Math.max(1, Math.min(max, Number(v) || 1))
+      const cur = this.curWeek
+      if (this.mode === 'last') { const w = clamp(cur - 1); return [w, w] }
+      if (this.mode === 'range') {
+        let a = clamp(this.from), b = clamp(this.to)
+        if (a > b) { const t = a; a = b; b = t }   // 起止填反了自动纠正，不报错
+        return [a, b]
+      }
+      return [clamp(cur), clamp(cur)]
     },
     async collect() {
       const [a, b] = this.range()
@@ -1197,105 +1351,302 @@ window.Views.AdminPlanEdit = {
   },
 }
 
-/* 打回跟踪：管理员查看被打回记录的处理状态（谁还没改、谁已改、改了但没补数据） */
-window.Views.AdminReturned = {
+/* 选课回收站：plan_delete 是软删除，删除的选课存在 check_plan_trash，可在此恢复 */
+window.Views.AdminTrash = {
   template: `
   <div class="shell shell-wide">
     <div class="topbar">
-      <div class="side"><button class="iconbtn back" @click="go('/admin')">‹</button></div>
-      <h1>打回跟踪</h1>
-      <div class="side right"><button class="iconbtn" :disabled="loading" @click="load" title="刷新">↻</button></div>
+      <div class="side"><button class="iconbtn back" @click="back">‹</button></div>
+      <h1>选课回收站</h1>
+      <div class="side right">
+        <button class="iconbtn" @click="load" title="刷新" :disabled="loading">↻</button>
+      </div>
     </div>
 
     <div class="card mt12">
       <div class="row between">
-        <div>
-          <div class="tiny muted">待处理</div>
-          <div class="strong" style="font-size:24px;color:var(--bad)">{{ pending }}</div>
-        </div>
-        <div style="text-align:center">
-          <div class="tiny muted">已处理</div>
-          <div class="strong" style="font-size:24px;color:var(--ok)">{{ done }}</div>
-        </div>
-        <button class="btn btn-sm btn-primary" :disabled="!pendingList.length" @click="copyPending">复制未处理名单</button>
+        <span class="strong">已删除的选课</span>
+        <span class="tiny muted">{{ list.length }} 条</span>
       </div>
-      <div class="tiny muted mt8">打回后记录会保留，成员打开时带出上次填写的内容和原照片；改完提交即恢复计入统计与导出。</div>
+      <div class="tiny muted mt8">删除选课只是把它移到这里，不会真正丢失；点「恢复」即可放回原成员的课表。</div>
+
+      <div class="list mt12" v-if="list.length">
+        <div class="litem" v-for="t in list" :key="t.id">
+          <div class="row between">
+            <div class="t1">{{ t.course_name }}<span class="ibox ibox-muted">{{ t.owner_name }}</span><span class="ibox ibox-pri" v-if="t.room">教室 {{ t.room }}</span></div>
+            <span class="badge">第 {{ t.week_no }} 周</span>
+          </div>
+          <div class="t2">
+            <span class="ibox">{{ U.md(t.check_date) }} {{ U.weekdayCN(t.check_date) }}</span>
+            <span class="ibox">{{ U.periodText(t.period_from, t.period_to) }}</span>
+            <span class="ibox" v-for="(c, ci) in classCodes(t)" :key="'c' + ci">{{ c }}</span>
+          </div>
+          <div class="tiny muted mt8">删除于 {{ U.dayTime(t.deleted_at) }}{{ t.deleted_by_name ? ' · ' + t.deleted_by_name : '' }}</div>
+          <div class="row mt8" style="gap:8px">
+            <button class="btn btn-sm" :disabled="busy === t.id" @click="restore(t)">{{ busy === t.id ? '恢复中…' : '恢复这节课' }}</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="muted sm mt12" v-else-if="loading">正在加载…</div>
+      <div class="muted sm mt12" v-else>回收站是空的，没有已删除的选课。</div>
     </div>
-
-    <div class="card mt12" v-if="loading"><div class="empty">加载中…</div></div>
-    <template v-else>
-      <div class="card mt12">
-        <div class="hd"><h2>待处理</h2><span class="tiny muted">{{ pendingList.length }} 条</span></div>
-        <div v-if="!pendingList.length" class="empty">没有待处理的记录</div>
-        <div class="rv-item" v-for="r in pendingList" :key="r.id" @click="openRec(r.id)">
-          <div class="row between">
-            <span class="strong">{{ r.owner_name }}</span>
-            <span class="tiny muted">打回 {{ r.returned_at_text }}</span>
-          </div>
-          <div class="sm mt8">{{ r.course_name }} <span class="muted">· {{ r.class_name }}</span></div>
-          <div class="tiny muted mt8">第 {{ r.week_no }} 周 {{ U.periodText(r.period_from, r.period_to) }} · 应到 {{ r.expected_count }} / 实到 {{ r.actual_count }} · {{ r.photo_count }} 张照片</div>
-          <div class="mt8" v-if="r.missing"><span class="badge badge-warn">纪律数据未补（原记录就是 0/空）</span></div>
-        </div>
-      </div>
-
-      <div class="card mt12" v-if="doneList.length">
-        <div class="hd" style="cursor:pointer" @click="showDone = !showDone"><h2>已处理 {{ doneList.length }} 条</h2><span class="tiny muted">{{ showDone ? '收起' : '展开' }} ›</span></div>
-        <template v-if="showDone">
-        <div class="rv-item" v-for="r in doneList" :key="r.id" @click="openRec(r.id)">
-          <div class="row between">
-            <span class="strong">{{ r.owner_name }}</span>
-            <span class="tiny" style="color:var(--ok)">{{ r.superseded ? '已由新记录替代' : '已重新提交' }}</span>
-          </div>
-          <div class="sm mt8">{{ r.course_name }} <span class="muted">· {{ r.class_name }}</span></div>
-          <div class="tiny muted mt8">打回 {{ r.returned_at_text }} · 应到 {{ r.expected_count }} / 实到 {{ r.actual_count }} · {{ r.photo_count }} 张照片</div>
-          <div class="mt8" v-if="r.missing && !r.superseded"><span class="badge badge-warn">已提交，但纪律数据仍是 0 / 教师情况空</span></div>
-        </div>
-        </template>
-      </div>
-    </template>
   </div>`,
-  data() { return { U, loading: true, items: [], pending: 0, done: 0, showDone: false } },
-  computed: {
-    pendingList() { return this.items.filter((r) => r.returned) },
-    doneList() { return this.items.filter((r) => !r.returned) },
-  },
+
+  data() { return { U, list: [], loading: true, busy: 0 } },
   mounted() { this.load() },
   methods: {
-    go(p) { Store.nav(p) },
-    openRec(id) { Store.nav('/admin/records/' + id) },
+    back() { if (history.length > 1) history.back(); else Store.nav('/admin/checks') },
+    classCodes(t) {
+      const arr = Array.isArray(t.classes) ? t.classes.map((c) => c && c.code).filter(Boolean) : []
+      if (arr.length) return arr.sort((a, b) => U.classCompare(a, b))
+      return String(t.class_name || '').split(/[、,，+ ]+/).map((s) => s.trim()).filter((s) => s && s !== '其他')
+    },
     async load() {
       this.loading = true
       try {
-        const d = await Store.rpcCached('admin_returned', {}, 30000)
-        this.items = (d.items || []).map((r) => Object.assign({}, r, {
-          returned_at_text: r.returned_at ? U.dayTime(r.returned_at) : '—',
-        }))
-        this.pending = Number(d.pending) || 0
-        this.done = Number(d.done) || 0
+        this.list = (await Store.rpc('admin_plan_trash_list', {})) || []
       } catch (e) {
         U.toast(U.errText(e), 'bad')
       } finally {
         this.loading = false
       }
     },
-    copyPending() {
-      const map = {}
-      this.pendingList.forEach((r) => { (map[r.owner_name] = map[r.owner_name] || []).push(r.course_name) })
-      const text = Object.keys(map).map((n) => n + '：' + map[n].join('、')).join('\n')
-      const finish = () => U.toast('已复制，可直接粘贴发群')
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(text).then(finish).catch(() => this.fallbackCopy(text, finish))
-      } else this.fallbackCopy(text, finish)
+    async restore(t) {
+      this.busy = t.id
+      try {
+        await Store.rpc('plan_restore', { p_trash_id: t.id })
+        U.toast('已恢复「' + t.course_name + '」')
+        Store.clearRpcCache()
+        this.list = this.list.filter((x) => x.id !== t.id)
+      } catch (e) {
+        U.toast(U.errText(e), 'bad')
+      } finally {
+        this.busy = 0
+      }
     },
-    fallbackCopy(text, done) {
-      const ta = document.createElement('textarea')
-      ta.value = text
-      ta.style.position = 'fixed'
-      ta.style.opacity = '0'
-      document.body.appendChild(ta)
-      ta.select()
-      try { document.execCommand('copy'); done() } catch (e) { U.toast('复制失败，请手动选择文本', 'bad') }
-      document.body.removeChild(ta)
+  },
+}
+
+/* 班级查课覆盖：按周统计大一年级各班的查课次数（PRD v1.0）
+   数据源 admin_class_coverage，班级全集来自 duty_classes，保证 0 次的班也会出现 */
+window.Views.AdminCoverage = {
+  template: `
+  <div class="shell shell-wide">
+    <div class="topbar">
+      <div class="side"><button class="iconbtn back" @click="back">‹</button></div>
+      <h1>班级查课覆盖</h1>
+      <div class="side right">
+        <button class="iconbtn" @click="load" title="刷新" :disabled="loading">↻</button>
+      </div>
+    </div>
+
+    <div class="card mt12" v-if="err">
+      <div class="empty">{{ err }}</div>
+      <button class="btn btn-primary btn-block mt12" @click="goSemesters">去学期设置</button>
+    </div>
+
+    <template v-else>
+      <div class="card mt12">
+        <div class="weeknav">
+          <button class="btn btn-sm" :disabled="week <= 1 || loading" @click="shift(-1)">‹ 上一周</button>
+          <div class="cur"><div class="w">第 <span class="w-num">{{ week }}</span> 周</div><div class="d">{{ rangeText }}</div></div>
+          <button class="btn btn-sm" :disabled="week >= maxWeek || loading" @click="shift(1)">下一周 ›</button>
+        </div>
+        <div class="tiny muted center mt8">大一 {{ rows.length }} 个班 · 按班级号排序</div>
+      </div>
+
+      <div class="card mt12">
+        <div class="tablewrap">
+          <table class="tb">
+            <thead>
+              <tr><th>班级</th><th class="num">计划</th><th class="num">已查</th><th class="num">待查</th></tr>
+            </thead>
+            <tbody>
+              <tr v-for="r in rows" :key="r.code">
+                <td class="strong cov-code">{{ r.code }}</td>
+                <td class="num">{{ r.plans }}</td>
+                <td class="num">{{ r.records }}</td>
+                <td class="num" :class="Number(r.pending) > 0 ? 'cov-pend' : 'muted'">{{ r.pending }}</td>
+              </tr>
+              <tr v-if="!rows.length">
+                <td colspan="4" class="center muted" style="padding:24px">{{ loading ? '加载中…' : '这一周还没有查课记录' }}</td>
+              </tr>
+            </tbody>
+            <tfoot v-if="rows.length">
+              <tr>
+                <td class="strong">合计 {{ rows.length }} 个班</td>
+                <td class="num strong">{{ totals.plans }}</td>
+                <td class="num strong">{{ totals.records }}</td>
+                <td class="num strong">{{ totals.pending }}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+    </template>
+  </div>`,
+
+  data() { return { U, week: 0, maxWeek: 18, rows: [], loading: true, err: '' } },
+  computed: {
+    rangeText() { return weekRangeText(this.week) },
+    totals() {
+      return this.rows.reduce((a, r) => ({
+        plans: a.plans + (Number(r.plans) || 0),
+        records: a.records + (Number(r.records) || 0),
+        pending: a.pending + (Number(r.pending) || 0),
+      }), { plans: 0, records: 0, pending: 0 })
+    },
+  },
+  mounted() { this.init() },
+  methods: {
+    back() { if (history.length > 1) history.back(); else Store.nav('/me') },
+    goSemesters() { Store.nav('/admin/semesters') },
+    // 每次进入都回到当前周，不记忆上次浏览的周次（PRD 5.1）
+    init() {
+      if (!Store.store.semester) {
+        this.err = '请先在学期设置里配置当前学期'
+        this.loading = false
+        return
+      }
+      this.maxWeek = Store.weekMax() || 18
+      const w = Store.weekNow() || 1
+      this.week = Math.min(Math.max(1, w), this.maxWeek)
+      this.load()
+    },
+    shift(d) {
+      const w = this.week + d
+      if (w < 1 || w > this.maxWeek) return
+      this.week = w
+      this.load()
+    },
+    async load() {
+      this.loading = true
+      try {
+        this.rows = (await Store.rpcCached('admin_class_coverage', { p_week: this.week }, 30000)) || []
+      } catch (e) {
+        U.toast(U.errText(e), 'bad')
+      } finally {
+        this.loading = false
+      }
+    },
+  },
+}
+
+/* 照片迁移：把历史 base64 照片搬到对象存储（3.5.3）
+   安全策略：逐张处理；上传成功才提交路径，提交成功才清空 base64；失败保留原数据。
+   时间戳（taken_at / created_at）由 photo_migrate_commit 原样保留，不做修改。 */
+window.Views.PhotoMigrate = {
+  template: `
+  <div class="shell">
+    <div class="topbar">
+      <div class="side"><button class="iconbtn back" @click="go('/me')">‹</button></div>
+      <h1>照片迁移</h1>
+      <div class="side right"></div>
+    </div>
+
+    <div class="card mt12">
+      <div class="hd"><h2>历史照片转对象存储</h2></div>
+      <div class="stat-grid">
+        <div class="stat"><div class="n">{{ total }}</div><div class="t">待迁移</div></div>
+        <div class="stat ok"><div class="n">{{ done }}</div><div class="t">本次成功</div></div>
+        <div class="stat warn"><div class="n">{{ failed }}</div><div class="t">本次失败</div></div>
+      </div>
+      <div class="tiny muted mt12">合计约 {{ sizeText }}。只搬位置，不改拍摄与提交时间；失败的照片会保留原数据，可重试。</div>
+      <button class="btn btn-primary btn-block mt12" :disabled="busy || loading || !total" @click="run">
+        {{ busy ? '迁移中 ' + done + '/' + (done + failed + (total - done - failed)) : (total ? '开始迁移 ' + total + ' 张' : '没有待迁移的照片') }}
+      </button>
+      <button class="btn btn-block mt8" :disabled="busy" @click="loadPending">刷新</button>
+    </div>
+
+    <div class="card" v-if="fails.length">
+      <div class="hd"><h2>失败明细（保留原数据）</h2></div>
+      <div class="list">
+        <div class="litem" v-for="f in fails" :key="'f' + f.id" style="cursor:default">
+          <div class="t1">照片 #{{ f.id }}</div>
+          <div class="t2">{{ f.msg }}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" v-if="finished && !busy">
+      <div class="hd"><h2>迁移完成</h2></div>
+      <div class="sub">全部照片已在对象存储，数据库里的 base64 已清空。</div>
+      <div class="tiny muted mt8">磁盘空间需管理员在库端执行 VACUUM 后才会真正释放（页面上做不到）。</div>
+      <button class="btn btn-block mt12" @click="go('/me')">返回我的</button>
+    </div>
+  </div>`,
+
+  data() {
+    return { pending: [], busy: false, loading: true, done: 0, failed: 0, fails: [], finished: false }
+  },
+  computed: {
+    total() { return this.pending.length },
+    sizeText() {
+      const b = this.pending.reduce((s, p) => s + (Number(p.bytes) || 0), 0)
+      if (!b) return '0 KB'
+      if (b < 1024 * 1024) return Math.round(b / 1024) + ' KB'
+      return (b / 1024 / 1024).toFixed(1) + ' MB'
+    },
+  },
+  mounted() { this.loadPending() },
+  methods: {
+    go(p) { Store.nav(p) },
+    async loadPending() {
+      this.loading = true
+      try {
+        const list = await Store.rpc('photo_migrate_pending', {})
+        this.pending = Array.isArray(list) ? list : []
+        this.finished = this.pending.length === 0
+      } catch (e) {
+        U.toast(U.errText(e), 'bad')
+      } finally {
+        this.loading = false
+      }
+    },
+    // base64 data URL → Blob（走 fetch 解码，兼容 data:image/jpeg;base64,...）
+    async toBlob(dataUrl, mime) {
+      const r = await fetch(dataUrl)
+      const b = await r.blob()
+      return mime ? new Blob([b], { type: mime }) : b
+    },
+    async upload(path, dataUrl, mime) {
+      if (!window.cloud || !window.cloud.storage || !window.cloud.storage.upload) throw new Error('文件存储未就绪，请刷新重试')
+      const blob = await this.toBlob(dataUrl, mime)
+      await window.cloud.storage.upload(path, blob)
+    },
+    async run() {
+      if (this.busy) return
+      this.busy = true
+      this.done = 0
+      this.failed = 0
+      this.fails = []
+      const list = this.pending.slice()
+      for (const it of list) {
+        try {
+          const ph = await Store.rpc('photo_get', { p_id: it.id })
+          if (!ph || !ph.data) throw new Error('这条照片没有原图数据，跳过')
+          const dataPath = 'users/' + it.owner_id + '/photos/' + it.id + '-full.jpg'
+          await this.upload(dataPath, ph.data, ph.mime || 'image/jpeg')
+          let thumbPath = ''
+          if (ph.thumb) {
+            thumbPath = 'users/' + it.owner_id + '/photos/' + it.id + '-thumb.jpg'
+            try { await this.upload(thumbPath, ph.thumb, 'image/jpeg') } catch (e) { thumbPath = '' }
+          }
+          await Store.rpc('photo_migrate_commit', {
+            p_id: it.id,
+            p_storage_path: dataPath,
+            p_thumb_path: thumbPath,
+            p_bytes: Number(it.bytes) || 0,
+          })
+          this.done += 1
+        } catch (e) {
+          this.failed += 1
+          this.fails.push({ id: it.id, msg: U.errText(e) || String((e && e.message) || e) })
+        }
+      }
+      await this.loadPending()
+      this.busy = false
     },
   },
 }

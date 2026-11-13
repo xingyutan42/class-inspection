@@ -27,7 +27,9 @@
       const st = t.objectStore(STORE)
       let out
       try { out = handler(st) } catch (e) { reject(e); return }
-      t.oncomplete = () => resolve(out && out.result !== undefined ? out.result : out)
+      // IDBRequest 的 result 在「没这条记录」时就是 undefined；早期写法会把 request 对象
+      // 本身当成结果返回（truthy），导致缓存永远「看起来命中但取不到字段」。按是否 request 判断。
+      t.oncomplete = () => resolve(out && typeof out === 'object' && 'result' in out ? out.result : out)
       t.onerror = () => reject(t.error)
       t.onabort = () => reject(t.error || new Error('缓存事务中断'))
     }))

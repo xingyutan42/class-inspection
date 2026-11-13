@@ -27,7 +27,8 @@
       const st = t.objectStore(STORE)
       let out
       try { out = handler(st) } catch (e) { reject(e); return }
-      t.oncomplete = () => resolve(out && out.result !== undefined ? out.result : out)
+      // 同 photocache：key 不存在时 result 为 undefined，不能把 request 对象当结果返回
+      t.oncomplete = () => resolve(out && typeof out === 'object' && 'result' in out ? out.result : out)
       t.onerror = () => reject(t.error)
       t.onabort = () => reject(t.error || new Error('缓存事务中断'))
     }))

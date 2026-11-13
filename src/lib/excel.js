@@ -17,6 +17,76 @@
 
   const WD = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
 
+  // ---- 富文本支持（仅导出时懒加载）----
+  // 表格库只能写纯文本：样表里「班级号（实到/应到）」是黑+红两段富文本，
+  // 库写出来只有一整段黑色，所以导出后要在 zip 层把 G 列改写成 inlineStr 富文本。
+  let zipLoading = null
+  function loadJSZip() {
+    if (window.JSZip) return Promise.resolve(window.JSZip)
+    if (zipLoading) return zipLoading
+    zipLoading = new Promise((resolve, reject) => {
+      const s = document.createElement('script')
+      s.src = 'vendor/jszip.min.js'
+      s.onload = () => resolve(window.JSZip)
+      s.onerror = () => reject(new Error('打包组件加载失败，请检查网络后重试'))
+      document.head.appendChild(s)
+    })
+    return zipLoading
+  }
+
+  function xmlEsc(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  }
+
+  // 「130026||01（12/12）」→ 黑色班级号 + 红色括号
+  function richClassRuns(text) {
+    const out = []
+    String(text).split('\n').forEach((line, i) => {
+      if (i) out.push('<r><rPr><color rgb="FF000000"/></rPr><t xml:space="preserve">\n</t></r>')
+      const at = line.indexOf('（')
+      if (at > 0) {
+        out.push('<r><rPr><color rgb="FF000000"/></rPr><t>' + xmlEsc(line.slice(0, at)) + '</t></r>')
+        out.push('<r><rPr><color rgb="FFFF0000"/></rPr><t>' + xmlEsc(line.slice(at)) + '</t></r>')
+      } else {
+        out.push('<r><rPr><color rgb="FF000000"/></rPr><t>' + xmlEsc(line) + '</t></r>')
+      }
+    })
+    return out.join('')
+  }
+
+  async function patchClassColumn(buf, sheetCount) {
+    const JSZip = await loadJSZip()
+    const zip = await JSZip.loadAsync(buf)
+    for (let i = 1; i <= sheetCount; i++) {
+      const path = 'xl/worksheets/sheet' + i + '.xml'
+      const f = zip.file(path)
+      if (!f) continue
+      let xml = await f.async('string')
+      xml = xml.replace(/<c r="(G\d+)"([^>]*)>([\s\S]*?)<\/c>/g, (m, addr, attrs, inner) => {
+        let text = ''
+        const v = inner.match(/<v[^>]*>([\s\S]*?)<\/v>/)
+        const t = inner.match(/<t[^>]*>([\s\S]*?)<\/t>/)
+        if (v) text = v[1]
+        else if (t) text = t[1]
+        if (!text || text.indexOf('（') < 0) return m
+        const a = attrs.replace(/\s+t="[^"]*"/, '')
+        return '<c r="' + addr + '"' + a + ' t="inlineStr"><is>' + richClassRuns(text) + '</is></c>'
+      })
+
+      zip.file(path, xml)
+    }
+    return zip.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+  }
+
+  function saveBlob(blob, name) {
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = name
+    document.body.appendChild(a)
+    a.click()
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove() }, 1500)
+  }
+
   function weekday(dateStr) {
     if (!dateStr) return ''
     const p = dateStr.slice(0, 10).split('-').map(Number)
@@ -62,7 +132,8 @@
     '辅导员', '课检员', '学委是否履职', '老师评分', '学生评分', '备注']
 
   // 列宽按模板
-  const COLW = [5.9, 29.9, 29.6, 36, 16.5, 26.3, 30.6, 7.3, 7.3, 10.5, 10.5, 31.3, 13, 27, 10, 10, 35, 42.5, 12.9, 12.7, 11.9, 11.9, 11.9, 14.3]
+  // 列宽：逐列对齐学院样表（单位字符宽度，取自《第八周课检.xlsx》）
+  const COLW = [5.45, 29.45, 29.18, 35.64, 16, 25.82, 32.82, 8.09, 8.09, 4.73, 8.36, 30.18, 5.09, 26.45, 11.36, 8.09, 31.73, 41.45, 11.36, 12.27, 11.45, 11.45, 11.45, 13.82]
 
   function cnNum(n) {
     const d = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九', '十']
@@ -103,11 +174,11 @@
     return GRADES.filter((g) => set[g])
   }
 
-  // 课检班级按学校样表格式：前缀||班号（班号去前导零），如 13002609 → 130026||9
+  // 课检班级按学校样表格式：前缀||班号（班号两位，如 130026||09）
   function classCodeText(code) {
     const s = String(code || '').trim()
     if (!/^[A-Za-z0-9]{8}$/.test(s)) return s
-    return s.slice(0, 6) + '||' + String(Number(s.slice(6)) || 0)
+    return s.slice(0, 6) + '||' + String(Number(s.slice(6)) || 0).padStart(2, '0')
   }
 
   function classLines(r) {
@@ -123,9 +194,15 @@
     return parts.join('\n')
   }
 
+  // 台账「旷到详情 / 请假详情」通用：
+  //   格式 = 「序号.班级号 姓名」，不再带「班」字（2026-11-07 T1）
+  //   请假原因已全系统下线（2026-11-11）：名单只输出班级与姓名，不再追加原因括号。
   function studentList(students) {
     const arr = Array.isArray(students) ? students : []
-    const items = arr.filter((s) => s && (s.name || s.cls)).map((s, i) => `${i + 1}.${s.cls || ''}班${s.name || ''}`)
+    const items = arr.filter((s) => s && (s.name || s.cls)).map((s, i) => {
+      const who = [String(s.cls || '').trim(), String(s.name || '').trim()].filter(Boolean).join(' ')
+      return `${i + 1}.${who}`
+    })
     return items.length ? items.join('\n') : '无'
   }
 
@@ -170,9 +247,9 @@
       act,                             // I 实到人数（整数）
       absent,                          // J 旷到人数（整数）
       ratio,                           // K 旷到比率
-      studentList(r.absent_students),  // L 旷到详情
+      studentList(r.absent_students),          // L 旷到详情
       leave,                           // M 请假人数（整数）
-      studentList(r.leave_students),   // N 请假详情
+      studentList(r.leave_students),          // N 请假详情（仅班级+姓名，不再带原因）
       int(r.phone_count),              // O 玩手机人数（整数）
       int(r.sleep_count),              // P 睡觉人数（整数）
       r.teacher_status || '',          // Q 教师上课情况
@@ -187,8 +264,16 @@
   }
 
   function ledgerSheet(list) {
+    // 文本列：与样表一致（样表这些列全部是文本格式 @），人数/详情等按字符串写入
+    const TEXT_COLS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 18, 19, 20, 23]
     const rows = [[NOTES].concat(Array(23).fill('')), HEAD.slice()]
-    list.forEach((r) => rows.push(buildRow(r)))
+    list.forEach((r) => {
+      const row = buildRow(r)
+      TEXT_COLS.forEach((c) => {
+        if (row[c] !== null && row[c] !== undefined && row[c] !== '') row[c] = String(row[c])
+      })
+      rows.push(row)
+    })
     const ws = window.XLSX.utils.aoa_to_sheet(rows)
     ws['!cols'] = COLW.map((w) => ({ wch: w }))
     // 行高按模板：说明行 135、表头 60、数据行 150
@@ -200,12 +285,33 @@
       { s: { r: 1, c: 12 }, e: { r: 1, c: 13 } },  // M2:N2 请假人数及详情
     ]
 
-    const base = { font: Object.assign({ sz: 16 }, FONT), alignment: WRAP, border: BORDER }
-    const red = { font: Object.assign({ sz: 16, color: RED }, FONT), alignment: WRAP, border: BORDER }
-    const remark = {
-      font: Object.assign({ sz: 16 }, FONT), alignment: WRAP, border: BORDER,
-      fill: { patternType: 'solid', fgColor: { rgb: 'FFFFF2CC' } },
-    }
+    // 注意：样式对象必须逐单元格新建。早期所有单元格共用同一个 base 对象，
+    // 给 K 列设 z='0.0%' 时改的是这个共享对象，导致其后 L~X 列全被套成百分比
+    //（人数 2 显示 200.0%、评分 9.5 显示 950.0%）。
+    const baseFont = Object.assign({ sz: 16 }, FONT)
+    const mk = (extra) => Object.assign(
+      { font: Object.assign({}, baseFont), alignment: Object.assign({}, WRAP), border: BORDER },
+      extra || {}
+    )
+    const red = mk({ font: Object.assign({}, baseFont, { color: RED }) })
+    // 与样表逐列对齐：K 旷到率 0.0%；V/W 评分 0.0_ ；A 组号与 R 学生上课情况为常规；其余文本
+    const fmtOf = (c) => (c === 10 ? '0.0%' : (c === 21 || c === 22) ? '0.0_ ' : ((c === 0 || c === 17) ? 'General' : '@'))
+
+    // 样表规则：旷到率最高、评分最低的行，备注标淡黄（不是"有备注就标"）
+    const flagRows = {}
+    let maxRate = -1
+    let minScore = Infinity
+    rows.slice(2).forEach((v) => {
+      const rate = Number(v[10]) || 0
+      if (rate > maxRate) maxRate = rate
+      const sc = Number(v[22])
+      if (!isNaN(sc) && sc < minScore) minScore = sc
+    })
+    rows.slice(2).forEach((v, k) => {
+      const hitRate = maxRate > 0 && Math.abs((Number(v[10]) || 0) - maxRate) < 1e-9
+      const hitScore = isFinite(minScore) && Number(v[22]) === minScore
+      if (hitRate || hitScore) flagRows[k + 2] = 1
+    })
 
     // 第 1 行：注意事项（红色加粗 18）
     ws.A1.s = { font: Object.assign({ sz: 18, bold: true, color: RED }, FONT), alignment: WRAP }
@@ -222,23 +328,18 @@
       }
     }
 
-    // 数据行：基础样式 + 问题项标红 + 备注淡黄
+    // 数据行：基础样式 + 问题项标红 + 极值行备注淡黄
     for (let i = 2; i < rows.length; i++) {
       const v = rows[i]
       for (let c = 0; c < 24; c++) {
         const addr = window.XLSX.utils.encode_cell({ r: i, c })
         if (!ws[addr]) continue
-        ws[addr].s = base
-        if (c === 10 && ws[addr].v !== '' && ws[addr].v !== undefined) ws[addr].z = '0.0%'
-        const isRed =
-          (c === 9 && Number(v[9]) > 0) ||          // 旷到人数
-          (c === 11 && v[11] && v[11] !== '无') ||  // 旷到详情
-          (c === 12 && Number(v[12]) > 0) ||        // 请假人数
-          (c === 13 && v[13] && v[13] !== '无') ||  // 请假详情
-          (c === 14 && Number(v[14]) > 0) ||        // 玩手机人数
-          (c === 15 && Number(v[15]) > 0)           // 睡觉人数
-        if (isRed) ws[addr].s = red
-        if (c === 23 && v[23]) ws[addr].s = remark  // 备注淡黄
+        ws[addr].s = mk()
+        ws[addr].z = fmtOf(c)
+        // 样表：K 旷到率 / L 旷到详情 / M 请假人数 / N 请假详情 / O 玩手机 / P 睡觉 整列红字，
+        // J 旷到人数保持黑色。原来按"值>0"判断，导致 K 漏标、J 误标。
+        if (c >= 10 && c <= 15) ws[addr].s = red
+        if (c === 23 && flagRows[i]) ws[addr].s = mk({ fill: { patternType: 'solid', fgColor: { rgb: 'FFFFF2CC' } } })
       }
     }
     return ws
@@ -265,66 +366,76 @@
     const wk = weekFrom === weekTo ? `第${weekFrom}周` : `第${weekFrom}-${weekTo}周`
     const name = `课检台账_${(semester && semester.name) || ''}_${wk}_${d}.xlsx`
       .replace(/[\\/:*?"<>|]/g, '')
-    XLSX.writeFile(wb, name)
+    // 先由表格库生成裸文件，再把 G 列改写成「班级号黑 + 括号红」的富文本
+    const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' })
+    let blob
+    try {
+      blob = await patchClassColumn(buf, wb.SheetNames.length)
+    } catch (e) {
+      // 富文本处理失败不能拖垮导出：退回原始文件（保留日志便于排查）
+      console.warn('[xls] 富文本改写失败，已回退纯文本：', e && e.message)
+      blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+    }
+    saveBlob(blob, name)
     return { name, count: records.length }
   }
 
   // ================= 班级查课次数导出（统计页用） =================
 
+  // 查课次数导出：严格按学院样表《标准查课次数单次.xlsx》复刻
+  // 规格：单 Sheet「查课次数」+ 单行表头三列（姓名 / 有效次数 / 查课次数）
+  //       无边框、无底色、无加粗、全表水平+垂直居中、常规数字格式、无自动筛选、无冻结
+  //       列宽 62/82/70 px，表头行高 22px，数据行默认行高
+  // 口径：有效次数 = members[].total（按负责班级逐班累计，与统计页/看板同源）
+  //       查课次数 = members[].records（记录条数）
+  // 排序：非排除成员按有效次数降序（同数按姓名），排除成员（stats_excluded）固定排末尾且数值留空
   async function exportClassStats(opts) {
     const XLSX = await loadXLSX()
     const list = (opts && opts.members) || []
     const semester = (opts && opts.semester) || ''
     const weekLabel = (opts && opts.weekLabel) || '全学期'
 
-    const head = ['统计周次', '成员', '学号', '负责年级', '分配班级', '班级年级', '查课次数', '最近查课日期']
-    const rows = [head]
-    list.forEach((m) => {
-      const cls = Array.isArray(m.classes) ? m.classes : []
-      if (!cls.length) {
-        rows.push([weekLabel, m.name || '', m.student_no || '', m.duty_grade || '', '未分配', '', 0, ''])
-        return
-      }
-      cls.forEach((c) => {
-        rows.push([
-          weekLabel,
-          m.name || '',
-          m.student_no || '',
-          m.duty_grade || '',
-          c.code || '',
-          c.grade || '',
-          Number(c.count) || 0,
-          c.last_date || '',
-        ])
+    const sorted = list.slice().sort((a, b) => {
+      const ea = a.stats_excluded ? 1 : 0
+      const eb = b.stats_excluded ? 1 : 0
+      if (ea !== eb) return ea - eb
+      return (Number(b.total) || 0) - (Number(a.total) || 0) || String(a.name || '').localeCompare(String(b.name || ''), 'zh')
+    })
+
+    const rows = [['姓名', '有效次数', '查课次数']]
+    sorted.forEach((m) => {
+      // 被排除的三名大三成员（stats_excluded）：保留姓名，数值留空（业务方要求不写数据）
+      if (m.stats_excluded) { rows.push([m.name || '', null, null]); return }
+      rows.push([m.name || '', Number(m.total) || 0, Number(m.records) || 0])
+    })
+
+    const ws = XLSX.utils.aoa_to_sheet(rows)
+    // 列宽与样表一致（像素）
+    ws['!cols'] = [{ wpx: 62 }, { wpx: 82 }, { wpx: 70 }]
+    // 表头行高 22px = 16.5pt（样表以此区分表头，不加粗、不填色）
+    ws['!rows'] = [{ hpt: 16.5 }]
+
+    const center = { horizontal: 'center', vertical: 'center' }
+    const HEAD_FONT = { name: '微软雅黑', sz: 11 }
+    const BODY_FONT = { sz: 10 }
+    rows.forEach((row, r) => {
+      row.forEach((_, c) => {
+        const addr = XLSX.utils.encode_cell({ r: r, c: c })
+        if (!ws[addr]) return
+        ws[addr].s = r === 0
+          ? { font: Object.assign({}, HEAD_FONT), alignment: Object.assign({}, center) }
+          : { font: Object.assign({}, BODY_FONT), alignment: Object.assign({}, center) }
       })
     })
 
-    const sumHead = ['统计周次', '成员', '学号', '分配班级数', '已覆盖班级', '未覆盖班级', '查课记录数', '班级次数合计']
-    const sumRows = [sumHead]
-    list.forEach((m) => {
-      const total = Array.isArray(m.classes) ? m.classes.length : 0
-      const covered = Number(m.covered) || 0
-      sumRows.push([
-        weekLabel,
-        m.name || '',
-        m.student_no || '',
-        total,
-        covered,
-        Math.max(0, total - covered),
-        Number(m.records) || 0,
-        Number(m.total) || 0,
-      ])
-    })
-
     const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, sheetOf(rows), '班级查课次数')
-    XLSX.utils.book_append_sheet(wb, sheetOf(sumRows), '成员汇总')
+    XLSX.utils.book_append_sheet(wb, ws, '查课次数')
 
     const d = new Date().toLocaleDateString('sv-SE').replace(/-/g, '')
-    const name = `班级查课次数_${semester}_${weekLabel}_${d}.xlsx`.replace(/[\\/:*?"<>|]/g, '')
+    const name = `查课次数_${semester}_${weekLabel}_${d}.xlsx`.replace(/[\\/:*?"<>|]/g, '')
     XLSX.writeFile(wb, name)
     return { name, count: list.length }
   }
 
-  window.XLS = { exportLedger, exportClassStats, loadXLSX, gradeOfCode, gradesOf }
+  window.XLS = { exportLedger, exportClassStats, loadXLSX, gradeOfCode, gradesOf, studentList }
 })()

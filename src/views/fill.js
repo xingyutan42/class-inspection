@@ -87,7 +87,7 @@ window.Views.NumField = {
 
 window.Views.FillView = {
   template: `
-  <div class="shell">
+  <div class="shell fill-steps">
     <div class="topbar">
       <div class="side"><button class="iconbtn back" @click="back">‹</button></div>
       <h1>{{ editMode ? '修改查课结果' : '填写查课结果' }}</h1>
@@ -102,7 +102,32 @@ window.Views.FillView = {
       </div>
     </div>
 
-    <div class="card mt12 draft-tip" v-if="draftTip">
+    <div class="fill-summary mt12">
+      <div class="fs-top">
+        <div class="fs-main">
+          <div class="fs-title">{{ form.course_name || (isExtra ? '计划外查课' : '查课') }}</div>
+          <div class="fs-meta">{{ summaryMeta }}</div>
+        </div>
+        <span class="badge" :class="isExtra ? 'badge-warn' : 'badge-pri'">{{ isExtra ? '计划外' : '计划内' }}</span>
+      </div>
+      <div class="fs-tags" v-if="form.teacher || form.room || form.arrive_before">
+        <span class="ibox ibox-muted" v-if="form.teacher">{{ form.teacher }}</span>
+        <span class="ibox ibox-pri" v-if="form.room">教室 {{ form.room }}</span>
+        <span class="ibox ibox-warn" v-if="form.arrive_before">预计到岗 {{ U.arriveText(form.arrive_before) }}</span>
+      </div>
+    </div>
+
+    <div class="stepnav" role="tablist" aria-label="填报步骤">
+      <button type="button" role="tab" class="step" v-for="s in STEPS" :key="s.n"
+        :class="{ on: step === s.n, ok: stepOk(s.n) }"
+        :aria-selected="step === s.n ? 'true' : 'false'" @click="goStep(s.n)">
+        <span class="step-i" aria-hidden="true">{{ stepOk(s.n) ? '✓' : s.n }}</span>
+        <span class="step-t">{{ s.short }}</span>
+      </button>
+    </div>
+    <div class="step-hint tiny" v-if="stepHint">{{ stepHint }}</div>
+
+    <div class="card mt8 draft-tip" v-if="draftTip">
       <div class="strong" style="color:var(--warn)">发现未提交的草稿（{{ draftTip.time }}）</div>
       <div class="tiny muted mt8">{{ draftTip.text || '本机保存的填写内容' }}</div>
       <div class="row mt8" style="gap:8px">
@@ -113,7 +138,9 @@ window.Views.FillView = {
 
     <div class="tiny muted mt8" v-if="draftSavedAt && !draftTip">草稿已保存在本机 · {{ draftSavedText }}</div>
 
-    <div class="card mt12">
+    <!-- ========== 步骤 1：照片与课程信息 ========== -->
+    <div class="fill-step" v-show="step === 1">
+    <div class="card mt8">
       <div class="hd">
         <h2>现场照片 <span class="badge badge-bad" v-if="!editMode">必填</span><span class="badge badge-pri" v-else>沿用原照片</span></h2>
         <span class="tiny muted" v-if="!editMode">{{ photos.length }} / 2</span>
@@ -132,19 +159,17 @@ window.Views.FillView = {
           <span class="photo-add-t">拍照 / 从相册选择</span>
         </label>
       </div>
-      <div class="tiny mt8" style="color:var(--bad)" v-if="!editMode">课检员考勤需要，至少上传 1 张现场照片后才能提交。</div>
+      <div class="tiny mt8" style="color:var(--ink-2)" v-if="!editMode">课检员考勤需要，至少上传 1 张现场照片后才能提交。</div>
       <div class="tiny muted mt8">最多 2 张，自动压缩到 500KB 以内。建议拍教室全景或黑板，避免人脸特写。</div>
     </div>
 
-    <div class="card mt12" v-if="plan && plan.note" style="background:var(--bad-soft);border:1px solid rgba(217,45,32,.35)">
-      <div class="strong" style="color:var(--bad)">{{ editMode ? '这条记录被打回，可直接修改下方内容' : '这节课程被打回，请重新填写' }}</div>
-      <div class="sm mt8">打回原因：{{ plan.note }}</div>
-      <div class="sm mt8 muted" v-if="editMode">下方已带出上次提交的内容，改完直接提交即可（照片沿用）。</div>
+    <div class="card mt8" v-if="selfEdit">
+      <div class="strong">本周记录可以自己改一次</div>
+      <div class="tiny muted mt8">改完点保存立即生效，管理员能看到这次改动；同一条记录只允许自行修改一次。</div>
     </div>
 
-    <!-- ===== 课程信息 + 出勤情况（合并：出勤紧跟课检班级实到） ===== -->
-    <div class="card mt12">
-      <template v-if="isExtra">
+    <!-- 计划外才需要自己填课程信息；计划内的课程/老师/教室/时间已在顶部摘要，不再重复 -->
+    <div class="card mt8" v-if="isExtra">
       <div class="hd"><h2>课程信息</h2><span class="badge badge-warn">计划外</span></div>
 
       <div class="field">
@@ -175,31 +200,35 @@ window.Views.FillView = {
           <div class="chip" :class="{on: form.arrive_before === 'p2'}" @click="form.arrive_before = 'p2'">第二节课前</div>
         </div>
       </div>
-      <div class="field">
+      <div class="field mb0">
         <label class="label">被查班级<i class="req">*</i></label>
         <input class="input" v-model="form.class_name" maxlength="40" placeholder="如：13002605">
+        <div class="hint bad" v-if="classNameGradeMixed">当前填写班级的年级不同！同一节课请填写同年级的班级（仍可提交，请确认无误）</div>
       </div>
-      <num-field label="应到人数" v-model="form.expected_count" hint="点名册人数"></num-field>
-      </template>
+    </div>
 
-      <template v-else>
+    <div class="card mt8">
+      <div class="hd"><h2>课程主要内容</h2><span class="tiny muted">台账必填</span></div>
+      <div class="field mb0">
+        <label class="label">本节课程主要内容<i class="req">*</i></label>
+        <textarea class="textarea textarea-xs" v-model="form.course_content" maxlength="200" placeholder="如：第三章 极限的计算"></textarea>
+      </div>
+    </div>
+    </div>
+
+    <!-- ========== 步骤 2：出勤与名单 ========== -->
+    <div class="fill-step" v-show="step === 2">
+    <div class="card mt8">
       <div class="hd">
-        <h2>课程信息</h2>
-        <span class="badge badge-pri">计划内</span>
+        <h2>出勤情况</h2>
+        <span class="tiny muted" v-if="planMode">实到 {{ actualCount }} / 应到 {{ expectedTotal }}</span>
+        <span class="tiny muted" v-else>实到自动计算</span>
       </div>
-
-      <div class="kvrow"><span class="k">课程名称</span><span class="v strong">{{ form.course_name }}</span></div>
-      <div class="kvrow"><span class="k">任课老师</span><span class="v">{{ form.teacher || '—' }}</span></div>
-      <div class="kvrow"><span class="k">教室</span><span class="v strong">{{ form.room || '—' }}</span></div>
-      <div class="kvrow"><span class="k">课检时间</span><span class="v">{{ weekText }} {{ U.periodText(form.period_from, form.period_to) }}</span></div>
-      <div class="kvrow" v-if="form.arrive_before"><span class="k">预计到岗</span><span class="v">{{ U.arriveText(form.arrive_before) }}</span></div>
-
-      <div class="kvrow" v-if="!form.classes.length"><span class="k">课检班级</span><span class="v">{{ form.class_name }}</span></div>
 
       <template v-if="form.classes.length">
         <div class="cstat-hd">
-          <span class="label" style="margin:0">课检班级</span>
-          <span class="tiny muted">逐班填实到</span>
+          <span class="label" style="margin:0">逐班实到</span>
+          <span class="tiny muted">点 +/− 或直接填</span>
         </div>
         <div class="cstat" v-for="(c, i) in form.classes" :key="c.code + i">
           <div class="cstat-code">{{ c.code }}</div>
@@ -224,25 +253,25 @@ window.Views.FillView = {
           <span>应到 <b>{{ expectedTotal }}</b> · 实到 <b>{{ actualCount }}</b> <span class="muted">（{{ U.rate(actualCount, expectedTotal) || '—' }}）</span></span>
         </div>
       </template>
-      </template>
+      <div class="kvrow" v-else><span class="k">课检班级</span><span class="v">{{ form.class_name || '—' }}</span></div>
 
-      <div class="divider"></div>
-      <div class="hd">
-        <h2>出勤情况</h2>
-        <span class="tiny muted" v-if="planMode">实到 {{ actualCount }} / 应到 {{ expectedTotal }}</span>
-        <span class="tiny muted" v-else>实到自动计算</span>
-      </div>
+      <num-field v-if="!form.classes.length" label="应到人数" v-model="form.expected_count" hint="点名册人数"></num-field>
 
-      <num-field v-if="!isExtra && !form.classes.length" label="应到人数" v-model="form.expected_count" hint="点名册人数"></num-field>
+      <datalist id="cls-suggest">
+        <option v-for="c in classOptions" :key="c" :value="c"></option>
+      </datalist>
 
       <div class="grid2">
         <div class="count-col">
           <num-field label="旷课" v-model="form.absent_count"></num-field>
           <div class="stu-wrap" v-if="form.absent_count > 0">
-            <div class="tiny muted mb8">旷课名单<span class="req" style="margin-left:4px">*</span></div>
+            <div class="row between mb8">
+              <span class="tiny muted">旷课名单<span class="req" style="margin-left:4px">*</span></span>
+              <button class="btn btn-sm" type="button" @click="pasteStudents('absent')">批量粘贴</button>
+            </div>
             <div class="stu-row" v-for="(s2, i) in form.absent_students" :key="'a' + i">
               <div class="stu-idx">第 {{ i + 1 }} 个</div>
-              <input class="input" :style="String(s2.cls || '').trim() ? '' : 'border-color:var(--bad)'" v-model="s2.cls" maxlength="20" placeholder="班级（必填）">
+              <input class="input" list="cls-suggest" :style="String(s2.cls || '').trim() ? '' : 'border-color:var(--bad)'" v-model="s2.cls" maxlength="20" placeholder="班级（必填）">
               <input class="input" :style="String(s2.name || '').trim() ? '' : 'border-color:var(--bad)'" v-model="s2.name" maxlength="20" placeholder="姓名（必填）">
             </div>
             <div class="tiny mt8" style="color:var(--bad)" v-if="!absentOk">请补全每位旷课同学的班级和姓名后才能提交</div>
@@ -251,13 +280,16 @@ window.Views.FillView = {
         <div class="count-col">
           <num-field label="请假" v-model="form.leave_count"></num-field>
           <div class="stu-wrap" v-if="form.leave_count > 0">
-            <div class="tiny muted mb8">请假名单<span class="req" style="margin-left:4px">*</span></div>
+            <div class="row between mb8">
+              <span class="tiny muted">请假名单<span class="req" style="margin-left:4px">*</span></span>
+              <button class="btn btn-sm" type="button" @click="pasteStudents('leave')">批量粘贴</button>
+            </div>
             <div class="stu-row" v-for="(s2, i) in form.leave_students" :key="'l' + i">
               <div class="stu-idx">第 {{ i + 1 }} 个</div>
-              <input class="input" :style="String(s2.cls || '').trim() ? '' : 'border-color:var(--bad)'" v-model="s2.cls" maxlength="20" placeholder="班级（必填）">
+              <input class="input" list="cls-suggest" :style="String(s2.cls || '').trim() ? '' : 'border-color:var(--bad)'" v-model="s2.cls" maxlength="20" placeholder="班级（必填）">
               <input class="input" :style="String(s2.name || '').trim() ? '' : 'border-color:var(--bad)'" v-model="s2.name" maxlength="20" placeholder="姓名（必填）">
             </div>
-            <div class="tiny mt8" style="color:var(--bad)" v-if="!leaveOk">请补全每位请假同学的班级和姓名后才能提交</div>
+            <div class="tiny mt8" style="color:var(--bad)" v-if="!leaveOk">{{ leaveErr }}</div>
           </div>
         </div>
       </div>
@@ -267,7 +299,9 @@ window.Views.FillView = {
         <span class="strong num" :style="actualCount < 0 ? 'color:var(--bad)' : ''">{{ actualCount < 0 ? '人数超出' : actualCount }}</span>
       </div>
       <div class="tiny muted" v-if="!planMode">实到 = 应到 − 旷课 − 请假</div>
-      <div class="tiny muted" v-else>实到按上方班级明细汇总；旷课、请假只用于记录名单。</div>
+      <div class="tiny mt8" v-else :style="shortageOk ? 'color:var(--ok)' : 'color:var(--bad)'">
+        缺勤 {{ shortageCount }} 人（应到 {{ expectedTotal }} − 实到 {{ actualCount }}）= 旷课 {{ Number(form.absent_count) || 0 }} + 请假 {{ Number(form.leave_count) || 0 }}{{ shortageOk ? ' ✓' : '，还差 ' + shortageDiff + ' 人未标记' }}
+      </div>
       <div class="tiny mt8" :style="sumOk ? 'color:var(--muted)' : 'color:var(--bad);font-weight:700'">
         合计校验：实到 {{ actualCount }} + 请假 {{ Number(form.leave_count) || 0 }} + 旷课 {{ Number(form.absent_count) || 0 }} = {{ (Number(actualCount) || 0) + (Number(form.leave_count) || 0) + (Number(form.absent_count) || 0) }} / 应到 {{ expectedTotal }}{{ sumOk ? '' : '（不一致，请核对）' }}
       </div>
@@ -278,17 +312,12 @@ window.Views.FillView = {
     </div>
 
 
-    <!-- ===== 课程主要内容 ===== -->
-    <div class="card mt12">
-      <div class="hd"><h2>课程主要内容</h2></div>
-      <div class="field mb0">
-        <label class="label">本节课程主要内容<i class="req">*</i></label>
-        <textarea class="textarea textarea-xs" v-model="form.course_content" maxlength="200" placeholder="如：第三章 极限的计算"></textarea>
-      </div>
     </div>
 
-    <div class="card mt12">
-      <div class="hd"><h2>课堂纪律</h2><span class="tiny muted">各项填完点确定</span></div>
+    <!-- ========== 步骤 3：纪律与评分 ========== -->
+    <div class="fill-step" v-show="step === 3">
+    <div class="card mt8">
+      <div class="hd"><h2>课堂纪律</h2><span class="tiny muted">6 项均需点确定</span></div>
 
       <div class="field">
         <label class="label">教师上课情况<i class="req">*</i></label>
@@ -312,7 +341,7 @@ window.Views.FillView = {
       <div class="tiny muted mt8">每项填好后都要点「确定」。</div>
     </div>
 
-    <div class="card mt12">
+    <div class="card mt8">
       <div class="hd"><h2>老师评分 / 学生评分</h2><span class="tiny muted">9.0 ~ 10.0 · 默认 9.5</span></div>
       <div class="card tight num-field" style="margin-bottom:10px">
         <div class="row between" style="margin-bottom:6px">
@@ -341,39 +370,53 @@ window.Views.FillView = {
       <div class="tiny muted">范围 9.0 ~ 10.0（每档 0.1），默认 9.5；用加减或直接输入，调好后点「确定」。
       课堂纪律 6 项 + 评分 2 项，共 8 个「确定」全部按下后才能提交。</div>
     </div>
+    </div>
 
-    <div class="card mt12">
-      <div class="field mb0">
-        <label class="label">检查备注</label>
+    <!-- ========== 步骤 4：备注及提交 ========== -->
+    <div class="fill-step" v-show="step === 4">
+    <div class="card mt8">
+      <div class="hd">
+        <h2>检查备注</h2>
+        <button type="button" class="btn btn-sm" @click="remarkOpen = !remarkOpen">{{ remarkOpen ? '收起' : (form.remark ? '查看 / 修改' : '添加备注') }}</button>
+      </div>
+      <div class="tiny muted" v-if="!remarkOpen && !form.remark">选填，默认收起；有需要说明的情况再展开。</div>
+      <div class="field mb0" v-show="remarkOpen">
+        <label class="label">备注内容</label>
         <textarea class="textarea textarea-xs" v-model="form.remark" maxlength="200" placeholder="如：教师临时更换"></textarea>
       </div>
     </div>
 
+    <div class="card mt8">
+      <div class="hd"><h2>提交前检查</h2><span class="tiny muted">{{ checksDone }} / {{ checks.length }} 项已满足</span></div>
+      <ul class="checklist">
+        <li v-for="c in checks" :key="c.k" :class="c.ok ? 'ok' : 'bad'">
+          <span class="ci" aria-hidden="true">{{ c.ok ? '✓' : '!' }}</span>
+          <span class="ct">{{ c.t }}</span>
+        </li>
+      </ul>
+      <div class="tiny muted mt8">提交后仍按原有规则校验；有问题可回到前面步骤修改，填写内容不会丢。</div>
+    </div>
+    </div>
+
     <div class="mask mask-center" v-if="confirmShow">
       <div class="sheet sheet-center">
-        <h3>{{ editMode ? '确认重新提交' : '确认提交' }}</h3>
-        <div class="sub">{{ editMode ? '照片沿用原记录，提交后该记录恢复为正常状态并重新计入统计。' : '请确认已经完成所有填写' }}</div>
-        <button class="btn btn-primary btn-block" :disabled="busy" @click="doSubmit">{{ editMode ? '确认重新提交' : '确认提交' }}</button>
+        <h3>{{ selfEdit ? '确认保存修改' : '确认提交' }}</h3>
+        <div class="sub">{{ selfEdit ? '照片沿用原记录，保存后管理员能看到这次改动，本条记录不能再自行修改。' : '请确认已经完成所有填写' }}</div>
+        <button class="btn btn-primary btn-block" :disabled="busy" @click="doSubmit">{{ selfEdit ? '确认保存修改' : '确认提交' }}</button>
         <button class="btn btn-block mt8" @click="confirmShow = false">再检查一下</button>
       </div>
     </div>
 
     <div class="actionbar">
-      <div class="center tiny muted" v-if="isTest" style="margin-bottom:6px">测试账号：不受提交限制（照片、名单、合计、确定项都可跳过）</div>
-      <template v-else-if="editMode">
-        <div class="center tiny" v-if="!studentsOk" style="color:var(--bad);margin-bottom:6px">旷课 / 请假名单未填完整：每位同学的班级和姓名都必填</div>
-        <div class="center tiny" v-else-if="!sumOk" style="color:var(--bad);margin-bottom:6px">人数合计不一致：各班实到 + 其他实到 + 请假 + 旷课 必须等于应到人数</div>
-        <div class="center tiny muted" v-else style="margin-bottom:6px">照片沿用原记录，只改需要变动的内容即可</div>
-      </template>
-      <template v-else>
-        <div class="center tiny" v-if="!photos.length" style="color:var(--bad);margin-bottom:6px">课检员考勤需要，请先上传现场照片</div>
-        <div class="center tiny" v-else-if="!allConfirmed" style="color:var(--bad);margin-bottom:6px">还有未点「确定」的项目（课堂纪律 6 项 + 评分 2 项）</div>
-        <div class="center tiny" v-else-if="!studentsOk" style="color:var(--bad);margin-bottom:6px">旷课 / 请假名单未填完整：每位同学的班级和姓名都必填</div>
-        <div class="center tiny" v-else-if="!sumOk" style="color:var(--bad);margin-bottom:6px">人数合计不一致：各班实到 + 其他实到 + 请假 + 旷课 必须等于应到人数</div>
-      </template>
+      <div class="ab-tip center tiny muted" v-if="isTest">测试账号：不受提交限制（照片、名单、合计、确定项都可跳过）</div>
+      <div class="ab-tip center tiny muted" v-else-if="isAdminProxy">管理员模式：不受提交限制（照片、名单、合计、确定项都可跳过）</div>
+      <div class="ab-tip center tiny" v-else-if="step === STEPS.length && !canSubmit" style="color:var(--bad)">{{ submitBlockText }}</div>
+      <div class="ab-tip center tiny muted" v-else-if="editMode && step === STEPS.length">照片沿用原记录，只改需要变动的内容即可</div>
       <div class="inner">
-        <button class="btn btn-primary btn-block btn-lg" :disabled="busy || !canSubmit" @click="submit">
-          {{ busy ? '提交中…' : (editMode ? '保存修改并重新提交' : '提交查课结果') }}
+        <button class="btn ab-draft" @click="saveDraft(false)">存草稿</button>
+        <button class="btn btn-primary btn-lg grow" v-if="step < STEPS.length" @click="nextStep">下一步：{{ STEPS[step].short }}</button>
+        <button class="btn btn-primary btn-lg grow" v-else :disabled="busy || !canSubmit" @click="submit">
+          {{ busy ? '提交中…' : (selfEdit ? '保存修改' : '提交查课结果') }}
         </button>
       </div>
     </div>
@@ -392,8 +435,20 @@ window.Views.FillView = {
         '老师上课重点突出，大部分学生上课积极融入课堂。',
       ],
       isExtra: false, busy: false, err: '', photos: [], draftTip: null, draftSavedAt: 0,
+      // 分步：1 照片与课程信息 / 2 出勤与名单 / 3 纪律与评分 / 4 备注及提交
+      step: 1, remarkOpen: false,
+      STEPS: [
+        { n: 1, short: '照片', t: '照片与课程信息' },
+        { n: 2, short: '出勤', t: '出勤与名单' },
+        { n: 3, short: '纪律评分', t: '纪律与评分' },
+        { n: 4, short: '备注提交', t: '备注及提交' },
+      ],
+      // 草稿基线：载入完成后记录一次，只有偏离基线（真的动过）才存草稿
+      draftReady: false, draftBaseline: '',
+      // 本人当周自改一次：selfEditId 来自 /fill/:planId?edit=:recordId
+      selfEdit: false, selfEditId: 0,
       plan: null,
-      // 被打回后重新编辑：editRec 为原记录，照片沿用不重传
+      // 自改时：editRec 为原记录，照片沿用不重传
       editRec: null, editPhotoCount: 0,
       confirmed: { phone_count: false, sleep_count: false, phone_10: false, sleep_10: false, phone_30: false, sleep_30: false, teacher_score: false, student_score: false },
       form: {
@@ -430,8 +485,53 @@ window.Views.FillView = {
       if (!this.sem) return U.md(this.form.check_date)
       return '第' + U.weekNo(this.sem.start_monday, this.form.check_date) + '周 ' + U.weekdayCN(this.form.check_date)
     },
+    // 顶栏下的课程摘要：课程 / 日期节次 / 教室 / 计划内外，避免后续重复展示同一信息
+    summaryMeta() {
+      const out = []
+      if (this.form.check_date) out.push(this.weekText)
+      out.push(U.periodText(this.form.period_from, this.form.period_to))
+      return out.filter(Boolean).join(' · ')
+    },
+    // 计划外必填项（与提交校验口径一致：时间 / 课程名 / 老师 / 班级）
+    extraInfoOk() {
+      return !!(String(this.form.check_date || '').trim() && String(this.form.course_name || '').trim()
+        && String(this.form.teacher || '').trim() && String(this.form.class_name || '').trim())
+    },
+    // 提交前检查清单：每项标注所属步骤，供步骤条与底栏提示复用；口径与 canSubmit 保持一致
+    checks() {
+      const bypass = this.isTest || this.isAdminProxy
+      const out = []
+      out.push({ k: 'photo', step: 1, t: this.editMode ? '照片沿用原记录' : '现场照片至少 1 张', ok: this.editMode || bypass || this.photos.length > 0 })
+      if (this.isExtra && !this.editMode) out.push({ k: 'info', step: 1, t: '计划外课程名称 / 老师 / 班级 / 课检时间已填', ok: bypass || this.extraInfoOk })
+      out.push({ k: 'content', step: 1, t: '已填写本节课程主要内容', ok: this.editMode ? true : (bypass || !!String(this.form.course_content || '').trim()) })
+      out.push({ k: 'sum', step: 2, t: '人数合计一致：实到 + 请假 + 旷课 = 应到', ok: bypass || this.sumOk })
+      out.push({ k: 'students', step: 2, t: '旷课 / 请假名单的班级和姓名填写完整', ok: bypass || this.studentsOk })
+      if (!this.editMode) {
+        out.push({ k: 'teacher', step: 3, t: '已选择教师上课情况', ok: bypass || !!String(this.form.teacher_status || '').trim() })
+        out.push({ k: 'confirm', step: 3, t: '课堂纪律 6 项 + 评分 2 项已点确定', ok: bypass || this.allConfirmed })
+      }
+      return out
+    },
+    checksDone() { return this.checks.filter((c) => c.ok).length },
+    // 当前步骤未完成项提示（不阻断浏览，只说明缺什么）
+    stepHint() {
+      if (this.isTest || this.isAdminProxy) return ''
+      const bad = this.checks.filter((c) => !c.ok && c.step === this.step)
+      if (!bad.length) return ''
+      return '本步还有 ' + bad.length + ' 项待完成：' + bad[0].t
+    },
+    // 底栏在最后一步才提示阻塞原因，避免把错误提示堆在每一步上方
+    submitBlockText() {
+      const bad = this.checks.filter((c) => !c.ok)
+      if (!bad.length) return '还有未满足的提交条件，请回到前面步骤核对'
+      return '还不能提交：' + bad[0].t + (bad.length > 1 ? '（共 ' + bad.length + ' 项未满足）' : '')
+    },
     otherExpected() { return Number(this.isExtra ? 0 : this.form.other_expected) || 0 },
     planMode() { return !this.isExtra && (this.form.classes || []).length > 0 },
+    // T2 软限制：计划外查课的班级号可填多个（顿号/逗号分隔），跨年级只提示不阻断
+    classNameGradeMixed() {
+      return U.gradeKeysOf(U.codesInText(this.form.class_name)).length > 1
+    },
     expectedTotal() {
       if (!this.planMode) return Number(this.form.expected_count) || 0
       const sum = (this.form.classes || []).reduce((s, c) => s + (Number(c.expected) || 0), 0)
@@ -453,24 +553,38 @@ window.Views.FillView = {
     absentOk() {
       return (this.form.absent_students || []).every((s) => String(s.cls || '').trim() && String(s.name || '').trim())
     },
+    // 请假名单只要求班级 + 姓名（请假原因已全系统下线，不再采集/校验）
     leaveOk() {
       return (this.form.leave_students || []).every((s) => String(s.cls || '').trim() && String(s.name || '').trim())
     },
+    leaveErr() {
+      return '请补全每位请假同学的班级和姓名后才能提交'
+    },
     studentsOk() { return this.absentOk && this.leaveOk },
+    // 缺勤联动：应到 − 实到 应等于 旷课 + 请假
+    shortageCount() { return Math.max(0, (Number(this.expectedTotal) || 0) - (Number(this.actualCount) || 0)) },
+    markedCount() { return (Number(this.form.absent_count) || 0) + (Number(this.form.leave_count) || 0) },
+    shortageOk() { return this.markedCount === this.shortageCount },
+    shortageDiff() { return Math.abs(this.shortageCount - this.markedCount) },
     sumOk() {
       const sum = (Number(this.actualCount) || 0) + (Number(this.form.absent_count) || 0) + (Number(this.form.leave_count) || 0)
       return sum === (Number(this.expectedTotal) || 0)
     },
-    // 被打回后重新编辑原记录（照片沿用，不重传）
+    // 自改原记录（照片沿用，不重传）
     editMode() { return !!this.editRec },
     // 测试账号（学号 TEST 开头 / 姓名「测试」开头）：不受任何提交限制，方便反复测试
     isTest() {
       const me = Store.store.me || {}
       return /^TEST/i.test(String(me.student_no || '')) || /^测试/.test(String(me.name || ''))
     },
+    // 管理员「登录他」代成员操作：同样不受提交限制（补录/演示时不必凑照片和确定项）
+    isAdminProxy() {
+      const imp = Store.store.impersonation
+      return !!(imp && imp.active)
+    },
     canSubmit() {
-      if (this.isTest) return true
-      // 被打回后修改原记录：只校验人数合计与名单，照片/确定项/教师情况不强制
+      if (this.isTest || this.isAdminProxy) return true
+      // 自改原记录：只校验人数合计与名单，照片/确定项/教师情况不强制
       if (this.editMode) {
         if (!this.form.check_date) return false
         if (this.planMode && this.form.classes.some((c) => (Number(c.actual) || 0) > (Number(c.expected) || 0))) return false
@@ -480,6 +594,7 @@ window.Views.FillView = {
       }
       if (!this.form.check_date) return false
       if (!this.form.course_name.trim() || !this.form.class_name.trim()) return false
+      if (!String(this.form.teacher || '').trim()) return false
       if (this.actualCount < 0) return false
       if (this.planMode && this.form.classes.some((c) => (Number(c.actual) || 0) > (Number(c.expected) || 0))) return false
       if (!this.photos.length) return false
@@ -492,6 +607,21 @@ window.Views.FillView = {
       if (need.some((k) => !this.confirmed[k])) return false
       return true
     },
+    // 班级候选：本节课班级 + 本人负责班级 + 本人班级
+    classOptions() {
+      const set = []
+      const add = (v) => {
+        String(v || '').split(/[、,，+\s]+/).forEach((x) => {
+          const t = x.trim()
+          if (t && t !== '其他' && set.indexOf(t) < 0) set.push(t)
+        })
+      }
+      ;(this.form.classes || []).forEach((c) => add(c.code))
+      const me = Store.store.me || {}
+      add(me.duty_classes)
+      add(me.own_class)
+      return set.sort((a, b) => U.classCompare(a, b))
+    },
     // ---------- 草稿定位与展示 ----------
     draftKey() {
       const uid = (Store.store.me && Store.store.me.id) || 0
@@ -501,7 +631,8 @@ window.Views.FillView = {
     },
     draftText() {
       const f = this.form
-      return [U.md(f.check_date), U.periodText(f.period_from, f.period_to), f.course_name].filter(Boolean).join(' · ')
+      const cls = U.normClasses(f).join('、')
+      return [U.md(f.check_date), U.periodText(f.period_from, f.period_to), f.course_name, f.teacher, cls].filter(Boolean).join(' · ')
     },
     draftSavedText() {
       return this.draftSavedAt ? U.shortTime(new Date(this.draftSavedAt).toISOString()) : ''
@@ -513,21 +644,87 @@ window.Views.FillView = {
     form: { deep: true, handler() { this.autoSaveDraft() } },
   },
   mounted() {
+    // 兜底检查：正常情况下不会走到这里——根组件（app.js）在 store.me 为空时
+    // 会直接渲染登录页，压根不会挂载本组件。保留是为了防止将来路由守卫被改动。
+    if (!(Store.store && Store.store.token)) {
+      // 先跳转，再提示：即使 toast 因页面正在切换而失败，也不能挡住跳转
+      Store.nav('/login')
+      try { U.toast('登录已失效，请重新登录', 'bad') } catch (e) { /* 忽略 */ }
+      return
+    }
+    window.__xfcSaveDraftBeforeRefresh = async () => {
+      if (this._draftTimer) { clearTimeout(this._draftTimer); this._draftTimer = null }
+      return await this.saveDraft(true)
+    }
     const p = this.$root.route.params
+    const q = this.$root.route.query || {}
+    if (q.edit) this.selfEditId = Number(q.edit) || 0
     if (p.planId) this.loadPlan(p.planId)
-    else { this.isExtra = true; this.form.check_date = U.today(); this.checkDraft() }
+    else { this.isExtra = true; this.form.check_date = U.today(); this.markDraftBaseline(); this.checkDraft() }
+  },
+  beforeUnmount() {
+    if (this._draftTimer) clearTimeout(this._draftTimer)
+    if (window.__xfcSaveDraftBeforeRefresh) delete window.__xfcSaveDraftBeforeRefresh
   },
   methods: {
     back() { history.length > 1 ? history.back() : Store.nav('/') },
+    // ---------- 分步导航：允许来回浏览，最终提交仍由 canSubmit 全量校验 ----------
+    stepOk(n) {
+      if (this.isTest || this.isAdminProxy) return true
+      if (n === 1) {
+        const photoOk = this.editMode || this.photos.length > 0
+        const contentOk = this.editMode || !!String(this.form.course_content || '').trim()
+        const infoOk = !this.isExtra || this.editMode || this.extraInfoOk
+        return photoOk && contentOk && infoOk
+      }
+      if (n === 2) return this.sumOk && this.studentsOk
+      if (n === 3) return this.editMode ? true : (!!String(this.form.teacher_status || '').trim() && this.allConfirmed)
+      return this.canSubmit
+    },
+    goStep(n) {
+      this.step = Math.min(this.STEPS.length, Math.max(1, Number(n) || 1))
+      this.scrollToTop()
+    },
+    nextStep() {
+      if (this.step < this.STEPS.length) { this.step += 1; this.scrollToTop() }
+    },
+    scrollToTop() {
+      this.$nextTick(() => { try { window.scrollTo(0, 0) } catch (e) { /* 忽略 */ } })
+    },
     // ---------- 草稿：本机自动保存，不请求云端 ----------
     autoSaveDraft() {
       if (this._draftTimer) clearTimeout(this._draftTimer)
       this._draftTimer = setTimeout(() => { this.saveDraft(true) }, 1500)
     },
+    // 表单快照：键名排序后序列化，只用于比较内容是否变化
+    formSig(f) {
+      if (!f) return ''
+      const o = {}
+      Object.keys(f).sort().forEach((k) => { o[k] = f[k] })
+      try { return JSON.stringify(o) } catch (e) { return '' }
+    },
+    // 载入完成：把当前内容记为基线，此后只有偏离基线才算「填过」
+    markDraftBaseline() {
+      this.draftBaseline = this.formSig(this.form)
+      this.draftReady = true
+    },
+    isDirty() {
+      if (!this.draftReady || !this.draftBaseline) return false
+      if ((this.photos || []).some((p) => p.dataUrl)) return true
+      return this.formSig(this.form) !== this.draftBaseline
+    },
     async saveDraft(silent) {
-      if (!window.Draft) return
+      if (!window.Draft) return false
+      if (!this.draftReady) return false   // 计划还在载入，别把程序填的默认值当成用户输入
       const key = this.draftKey
-      if (!key) return
+      if (!key) return false
+      // 内容与刚进入页面时一模一样 → 没有可存的东西。
+      // 注意：这里只跳过保存，绝不能删已有草稿——那份可能是上次没填完留下的，
+      // 用户还没点「恢复」或「丢弃」，删掉就等于把人家的工作弄没了。
+      if (!this.isDirty()) {
+        if (silent === false) U.toast('还没有填写内容')
+        return true
+      }
       const photos = (this.photos || []).filter((p) => !p.saved && p.dataUrl).map((p) => ({
         key: p.key, dataUrl: p.dataUrl, thumbDataUrl: p.thumbDataUrl || '', kb: p.kb, takenAt: p.takenAt || '',
       }))
@@ -541,14 +738,25 @@ window.Views.FillView = {
       if (ok) {
         this.draftSavedAt = Date.now()
         if (silent === false) U.toast('草稿已保存在本机')
-      } else if (silent === false) {
-        U.toast('草稿保存失败（浏览器存储不可用）', 'bad')
+        return true
+      } else {
+        if (silent === false) U.toast('草稿保存失败（浏览器存储不可用）', 'bad')
+        return false
       }
     },
     async checkDraft() {
       if (!window.Draft) return
-      const d = await Draft.get(this.draftKey)
+      const key = this.draftKey
+      const d = await Draft.get(key)
       if (!d) { this.draftTip = null; return }
+      // 旧版本会把「刚载入、还没动」的表单也存成草稿：内容与基线一致且无照片 → 视为空草稿，直接清掉
+      const noPhoto = !Array.isArray(d.photos) || d.photos.length === 0
+      if (noPhoto && d.form && this.formSig(d.form) === this.formSig(this.form)) {
+        await Draft.del(key)
+        this.draftTip = null
+        this.draftSavedAt = 0
+        return
+      }
       this.draftTip = {
         time: U.shortTime(new Date(Number(d.savedAt) || Date.now()).toISOString()),
         text: (d.meta && d.meta.text) || '',
@@ -596,8 +804,10 @@ window.Views.FillView = {
     },
     async loadPlan(id) {
       try {
-        const row = await Store.rpcCached('plan_get', { p_id: Number(id) })
-        if (row.status === 'submitted' && !this.isTest) { U.toast('这节已经填过了'); return Store.nav('/') }
+        const pid = Number(id)
+        // 自改所需数据从 plan_get 与 record_get 分别取得
+        const row = await Store.rpcCached('plan_get', { p_id: pid })
+        if (row.status === 'submitted' && !this.isTest && !this.selfEditId) { U.toast('这节已经填过了'); return Store.nav('/') }
         if (row.status === 'void') { U.toast('这节计划已作废'); return Store.nav('/') }
         this.plan = row
         this.fillFrom(row)
@@ -610,11 +820,14 @@ window.Views.FillView = {
         this.form.other_actual = this.form.other_expected
         const sum = this.form.classes.reduce((s, c) => s + c.expected, 0) + this.form.other_expected
         if (sum > 0) this.form.expected_count = sum
-        // 若这节课有被打回的记录，直接载入原数据供修改（照片沿用，不重传）
-        try {
-          const redo = await Store.rpcCached('record_of_plan', { p_plan_id: row.id })
-          if (redo && redo.record) this.applyReturnedRecord(redo.record, Number(redo.photo_count) || 0)
-        } catch (e2) { /* 查询失败按新填处理 */ }
+        // 本人当周自改：带出上次提交的内容，照片沿用
+        if (this.selfEditId) {
+          const d = await Store.rpcCached('record_get', { p_id: this.selfEditId })
+          if (!d || !d.can_edit) { U.toast('这条记录已经不能自行修改了'); return Store.nav('/') }
+          this.selfEdit = true
+          this.applyReturnedRecord(d.record, Number(d.photo_count) || 0)
+        }
+        this.markDraftBaseline()
         await this.checkDraft()
       } catch (e) { U.toast(U.errText(e), 'bad'); Store.nav('/') }
     },
@@ -627,7 +840,10 @@ window.Views.FillView = {
       this.form.absent_count = Number(rec.absent_count) || 0
       this.form.leave_count = Number(rec.leave_count) || 0
       this.form.absent_students = (rec.absent_students || []).map((s) => ({ cls: s.cls || '', name: s.name || '' }))
-      this.form.leave_students = (rec.leave_students || []).map((s) => ({ cls: s.cls || '', name: s.name || '' }))
+      // 请假原因已下线：历史记录里的 reason/note 不再读入表单，只保留班级与姓名
+      this.form.leave_students = (rec.leave_students || []).map((s) => ({
+        cls: s.cls || '', name: s.name || '',
+      }))
       this.form.phone_count = Number(rec.phone_count) || 0
       this.form.sleep_count = Number(rec.sleep_count) || 0
       this.form.phone_10 = Number(rec.phone_10) || 0
@@ -661,9 +877,9 @@ window.Views.FillView = {
         const name = String(f.name || '').toLowerCase()
         if (f.type && f.type.indexOf('image/') !== 0 && !/\.(heic|heif|jpg|jpeg|png|webp|gif)$/.test(name)) continue
         try {
-          const out = await IMG.compress(f, { maxKB: 300, maxEdge: 1500 })
+          const out = await IMG.compress(f, { maxKB: 120, maxEdge: 640 })  // 640px：够看清人数/教室
           const dataUrl = await blobToDataUrl(out.blob)
-          const th = await IMG.compress(f, { maxKB: 25, maxEdge: 320 })
+          const th = await IMG.compress(f, { maxKB: 20, maxEdge: 320 })
           const thumbDataUrl = await blobToDataUrl(th.blob)
           // 水印：时间（精确到分钟）+ 检课人，烧进像素，事后无法用旧图替换
           let finalUrl = dataUrl
@@ -702,10 +918,43 @@ window.Views.FillView = {
       }
       this.photos.splice(i, 1)
     },
+    // 批量粘贴：每行「班级 姓名」（空格 / 逗号 / Tab 分隔均可）
+    pasteStudents(kind) {
+      const label = kind === 'absent' ? '旷课' : '请假'
+      const text = window.prompt(
+        `粘贴${label}名单，每行一个同学\n格式：班级 姓名（空格或逗号分隔）\n例如：\n13002608 张三\n13002609 李四,王五`,
+        ''
+      )
+      if (!text) return
+      const rows = []
+      text.split(/\r?\n/).forEach((line) => {
+        const t = line.trim()
+        if (!t) return
+        const parts = t.split(/[\s,，\t]+/).filter(Boolean)
+        if (!parts.length) return
+        if (parts.length === 1) rows.push({ cls: parts[0], name: '' })
+        else rows.push({ cls: parts[0], name: parts.slice(1).join('') })
+      })
+      if (!rows.length) { U.toast('没识别到内容', 'bad'); return }
+      const key = kind === 'absent' ? 'absent_students' : 'leave_students'
+      const cntKey = kind === 'absent' ? 'absent_count' : 'leave_count'
+      this.form[key] = rows
+      this.form[cntKey] = rows.length
+      U.toast(`已导入 ${rows.length} 条${label}名单`)
+    },
     syncStudents(kind, n) {
       const key = kind === 'absent' ? 'absent_students' : 'leave_students'
+      const cntKey = kind === 'absent' ? 'absent_count' : 'leave_count'
       const arr = this.form[key]
       const target = Math.max(0, Math.min(Number(n) || 0, 100))
+      if (arr.length > target) {
+        const dropped = arr.slice(target)
+        const hasData = dropped.some((x) => String(x.cls || '').trim() || String(x.name || '').trim())
+        if (hasData && !window.confirm(`人数减少，将删除最后 ${dropped.length} 条已填名单，确定？`)) {
+          this.form[cntKey] = arr.length
+          return
+        }
+      }
       while (arr.length < target) arr.push({ cls: '', name: '' })
       while (arr.length > target) arr.pop()
     },
@@ -764,7 +1013,10 @@ window.Views.FillView = {
         phone_30: Number(this.form.phone_30) || 0,
         sleep_30: Number(this.form.sleep_30) || 0,
         absent_students: this.form.absent_students.filter((x) => x.name || x.cls),
-        leave_students: this.form.leave_students.filter((x) => x.name || x.cls),
+        // 请假名单只提交班级与姓名：原因字段已全系统下线，新数据不再携带 reason/note
+        leave_students: this.form.leave_students.filter((x) => x.name || x.cls).map((x) => ({
+          cls: x.cls, name: x.name,
+        })),
         discipline_tags: this.tagsForPayload(),
         discipline_note: this.form.course_content.trim(),
         remark: this.form.remark.trim(),
@@ -780,30 +1032,64 @@ window.Views.FillView = {
       }
       return body
     },
-    submit() {
+    // 3.7：计划外查课（无 plan_id）的重复/冲突只软提示，不阻断提交
+    async extraConflictHint() {
+      if (this.plan) return
+      try {
+        const rows = await Store.rpc('my_records', {})
+        const me = Store.store.me || {}
+        const cur = Object.assign({}, this.form, { owner_id: me.id, classes: [] })
+        let hint = ''
+        ;(rows || []).forEach((r) => {
+          if (!hint) {
+            const c = U.sessionCompare(r, cur)
+            if (c.same) hint = '这节课已有查课记录，请确认是否重复填报'
+            else {
+              const t = U.sessionHint(r, cur)
+              if (t) hint = t
+            }
+          }
+        })
+        if (hint) U.toast(hint)
+      } catch (e) { /* 提示失败不影响提交 */ }
+    },
+    async submit() {
       this.err = ''
       if (!Store.store.semester) { this.err = '尚未设置学期，请联系管理员'; return }
-      if (!this.isTest) {
+      // T2 软限制：计划外查课填了多个不同年级的班级，只提示，不拦提交
+      if (this.classNameGradeMixed) U.toast('当前填写班级的年级不同！', 'bad')
+      if (!this.isTest && !this.isAdminProxy) {
         this.form.classes.forEach((c, i) => this.clampActual(i))
         this.clampOther()
       }
+      // 台账必需列：自改走的是 editMode 分支，canSubmit 不校验这一项，这里补上
+      if (!this.isTest && !this.isAdminProxy && !String(this.form.teacher_status || '').trim()) {
+        this.err = '请选择「教师上课情况」——台账这一列不能空'
+        return
+      }
       if (!this.canSubmit) return
+      await this.extraConflictHint()
       this.confirmShow = true
     },
     async doSubmit() {
       this.confirmShow = false
       this.busy = true
       try {
+        // 提交前先把当前内容强制落盘（含照片）。
+        // 目的：万一提交时才发现登录过期（服务端返回「登录已失效」并跳登录页），
+        // 用户填的内容和照片不会白填一遍——重新登录后进同一节还能恢复。
+        await this.saveDraft(true)
         const body = this.payload()
         if (this.editMode) {
-          // 修改被打回的原记录：照片沿用，只上传新追加的
-          const rec2 = await Store.rpc('record_resubmit', { p_id: this.editRec.id, p_payload: body })
+          // 成员当周自行修改一次：只更新原记录，照片沿用
+          const okText = '已保存修改，管理员能看到这次改动'
+          const rec2 = await Store.rpc('record_self_update', { p_id: this.editRec.id, p_payload: body })
           if (this.photos.length) {
             const fail2 = await this.uploadPhotos(rec2.id)
-            if (fail2) U.toast('已重新提交，但有 ' + fail2 + ' 张新照片未上传', 'bad')
-            else U.toast('已修改并重新提交')
+            if (fail2) U.toast(okText + '，但有 ' + fail2 + ' 张新照片未上传', 'bad')
+            else U.toast(okText)
           } else {
-            U.toast('已修改并重新提交')
+            U.toast(okText)
           }
           if (window.Draft) Draft.del(this.draftKey)
           Store.clearRpcCache()
@@ -821,23 +1107,63 @@ window.Views.FillView = {
         Store.clearRpcCache()
         Store.nav('/')
       } catch (e) {
-        this.err = U.errText(e)
+        const msg = U.errText(e)
+        this.err = msg
+        // 登录失效：Store 内部已经清 token 并跳登录页，这里再兜一次草稿保存，
+        // 保证「填了半小时、点提交才发现要重新登录」不会白干。
+        if (/登录已失效/.test(msg)) {
+          try { await this.saveDraft(true) } catch (e2) { /* 组件可能已销毁，忽略 */ }
+          U.toast('登录已过期，填写内容已存到本机；重新登录后进同一节会提示恢复', 'bad')
+        }
       } finally {
         this.busy = false
       }
     },
     async uploadPhotos(recId) {
       let fail = 0
-      for (const ph of this.photos) {
+      let errShown = false
+      // 只取一次 SDK 身份；'' 表示无 SDK 身份（10 个老账号 / SDK 未就绪）。
+      // 严禁用 Store.store.me.id（业务小整数）拼路径（C-05）。
+      const uid = await Store.currentUid()
+      for (let i = 0; i < this.photos.length; i++) {
+        const ph = this.photos[i]
         if (ph.saved) continue
         try {
-          // 照片以 base64 存库（文件存储需 SDK 登录态，当前自建账号体系不可用，已实测）
+          if (!uid) {
+            // ---- 兜底通道：完全沿用 3.8.5 base64 参数契约，绝不触发 cloud.storage.* ----
+            const params = {
+              p_record_id: recId, p_mime: 'image/jpeg', p_thumb: ph.thumbDataUrl || '',
+              p_data: ph.dataUrl, p_bytes: Math.round((ph.kb || 0) * 1024),
+            }
+            if (ph.takenAt) params.p_taken_at = ph.takenAt
+            const r = await Store.rpc('photo_add', params)
+            ph.saved = true
+            if (r && r.id) {
+              ph.id = r.id
+              if (window.PhotoCache) PhotoCache.put(r.id, { thumb: ph.thumbDataUrl, data: ph.dataUrl, takenAt: ph.takenAt || '' })
+            }
+            continue
+          }
+          // ---- 新链路：shared/<SDK uid>/checks/<recId>/... ----
+          const stamp = Date.now()
+          const key = String(ph.key || ('p' + i)).replace(/[^\w-]/g, '') || ('p' + i)
+          const base = 'shared/' + uid + '/checks/' + recId
+          const fullPath = base + '/' + stamp + '-' + key + '-full.jpg'
+          await this.uploadBlob(fullPath, ph.dataUrl)   // 内部已判 {data,error}，失败即抛，绝不登记
+          let thumbPath = ''
+          if (ph.thumbDataUrl) {
+            const tp = base + '/' + stamp + '-' + key + '-thumb.jpg'
+            // Q-03/R-17：缩略图失败降级置空，不阻断主流程、不计入 fail；
+            // 读端 Store.thumbUrl 会自动回落到 storage_path 原图签名，不产生破图。
+            try { await this.uploadBlob(tp, ph.thumbDataUrl); thumbPath = tp } catch (e) { thumbPath = '' }
+          }
           const params = {
-            p_record_id: recId, p_mime: 'image/jpeg', p_thumb: ph.thumbDataUrl || '',
-            p_data: ph.dataUrl, p_bytes: Math.round((ph.kb || 0) * 1024),
+            p_record_id: recId, p_storage_path: fullPath, p_thumb_path: thumbPath,
+            p_bytes: Math.round((ph.kb || 0) * 1024), p_mime: 'image/jpeg',
           }
           if (ph.takenAt) params.p_taken_at = ph.takenAt
-          const r = await Store.rpc('photo_add', params)
+          // 注意：p_token 由 Store.rpc 自动注入（代登录时为被代理人 token）
+          const r = await Store.rpc('photo_add_storage', params)
           ph.saved = true
           if (r && r.id) {
             ph.id = r.id
@@ -845,9 +1171,28 @@ window.Views.FillView = {
           }
         } catch (e) {
           fail += 1
+          // R-05 / AC-12：错误文案透出，不再静默吞错；仅首张失败弹一次，避免刷屏。
+          // fail 仍按实际失败张数累加；doSubmit 的汇总 toast 文案不改（无 UI 变化）。
+          if (!errShown) {
+            errShown = true
+            U.toast('第 ' + (i + 1) + ' 张照片未上传：' + (U.errText(e) || '未知错误'), 'bad')
+          }
         }
       }
       return fail
+    },
+    async uploadBlob(path, dataUrl) {
+      const st = window.cloud && window.cloud.storage
+      if (!st || !st.upload) throw new Error('文件存储未就绪，请刷新页面重试')
+      const blob = await (await fetch(dataUrl)).blob()
+      const res = await st.upload(path, new Blob([blob], { type: 'image/jpeg' }), { contentType: 'image/jpeg' })
+      // C-09 / AC-02：必须判 error；有 error 立即抛，绝不登记路径、绝不写 ph.saved。
+      if (!res) throw new Error('文件存储无响应，请重试')
+      if (res.error) {
+        const er = res.error
+        throw (er instanceof Error ? er : new Error(String((er && er.message) || er)))
+      }
+      return res.data
     },
   },
 }
@@ -861,9 +1206,10 @@ window.Views.RecordView = {
       <div class="side right"></div>
     </div>
 
-    <div class="card mt12" v-if="rec && rec.returned" style="background:var(--bad-soft);border:1px solid rgba(217,45,32,.35)">
-      <div class="strong" style="color:var(--bad)">这条记录已被管理员打回</div>
-      <div class="sm mt8">记录保留仅作查看，不再计入统计与导出。请按原计划重新填报。</div>
+    <div class="card mt12" v-if="rec && canEdit && rec.plan_id">
+      <div class="strong">本周记录可以自己改一次</div>
+      <div class="tiny muted mt8">只能改查课结果（人数、名单、纪律、评分）；课程与班级要改请联系管理员。改完管理员能看到这次改动。</div>
+      <button class="btn btn-primary btn-block mt8" @click="editRecord">修改这条记录</button>
     </div>
 
     <div class="card mt12" v-if="loading"><div class="empty">加载中…</div></div>
@@ -876,6 +1222,7 @@ window.Views.RecordView = {
         </div>
 
         <div class="kvrow"><span class="k">课程名称</span><span class="v strong">{{ rec.course_name }}</span></div>
+        <div class="kvrow" v-if="rec.admin_note"><span class="k">操作留痕</span><span class="v" style="color:var(--warn);font-weight:650">{{ rec.admin_note }}</span></div>
         <div class="kvrow"><span class="k">任课老师</span><span class="v">{{ rec.teacher || '—' }}</span></div>
         <div class="kvrow"><span class="k">教室</span><span class="v strong">{{ rec.room || '—' }}</span></div>
         <div class="kvrow"><span class="k">课检时间</span><span class="v">第{{ rec.week_no }}周 {{ U.weekdayCN(rec.check_date) }} {{ U.periodText(rec.period_from, rec.period_to) }}</span></div>
@@ -976,7 +1323,7 @@ window.Views.RecordView = {
     </template>
   </div>`,
 
-  data() { return { U, rec: null, loading: true, photos: [], photosLoaded: false, photoLoading: false, fullPhoto: null, photoTimes: null } },
+  data() { return { U, rec: null, loading: true, photos: [], photosLoaded: false, photoLoading: false, fullPhoto: null, photoTimes: null, canEdit: false, photoCount: 0 } },
   computed: {
     counselorText() {
       if (!this.rec) return '—'
@@ -1046,13 +1393,20 @@ window.Views.RecordView = {
       try {
         const d = await Store.rpcCached('record_get', { p_id: Number(id) })
         this.rec = d.record
-        this.loadLocalPhotoTimes(Number(id))
+        this.canEdit = !!d.can_edit
+        this.photoCount = Number(d.photo_count) || 0
+        this.loadLocalPhotoTimes(Number(id)).catch(() => {})
       } catch (e) {
         U.toast(U.errText(e), 'bad')
         Store.nav('/')
       } finally {
         this.loading = false
       }
+    },
+    // 当周自改入口：带上记录 id，填报页据此走 record_self_update
+    editRecord() {
+      if (!this.rec || !this.rec.plan_id) return
+      Store.nav('/fill/' + this.rec.plan_id + '?edit=' + this.rec.id)
     },
     photoTakeText() {
       const t = this.photoTimes && (this.photoTimes.taken_at || this.photoTimes.created_at)
@@ -1078,7 +1432,7 @@ window.Views.MyRecordsView = {
       <div class="list" v-if="list.length">
         <div class="litem" v-for="r in list" :key="r.id" @click="go('/record/' + r.id)">
           <div class="row between">
-            <div class="t1">{{ r.course_name }} <span class="muted sm">· {{ r.class_name }}</span><span class="badge badge-warn" v-if="r.returned" style="margin-left:6px">已打回</span></div>
+            <div class="t1">{{ r.course_name }} <span class="muted sm">· {{ r.class_name }}</span></div>
           </div>
           <div class="t2">{{ U.md(r.check_date) }} {{ U.weekdayCN(r.check_date) }} {{ U.periodText(r.period_from, r.period_to) }}</div>
           <div class="mt8"><span class="ibox" v-for="(c, ci) in classParts(r)" :key="c + ci">{{ c }}</span><span class="ibox ibox-ok">出勤 {{ r.actual_count }}/{{ r.expected_count }}</span></div>
@@ -1151,6 +1505,10 @@ window.Views.MeView = {
           <div class="t1">班级查课次数</div>
           <div class="t2">按成员负责班级统计查课次数，可导出 Excel</div>
         </div>
+        <div class="litem" @click="go('/admin/coverage')">
+          <div class="t1">班级查课覆盖</div>
+          <div class="t2">按周看大一各班查了几次，找出漏查的班</div>
+        </div>
         <div class="litem" @click="go('/admin/export')">
           <div class="t1">导出 Excel 台账</div>
           <div class="t2">明细 + 周汇总 + 成员汇总</div>
@@ -1158,6 +1516,10 @@ window.Views.MeView = {
         <div class="litem" @click="go('/admin/semesters')">
           <div class="t1">学期设置</div>
           <div class="t2">第 1 周周一与总周数</div>
+        </div>
+        <div class="litem" @click="go('/admin/photos')">
+          <div class="t1">照片迁移</div>
+          <div class="t2">把历史照片搬到对象存储，释放数据库空间</div>
         </div>
       </div>
     </div>
@@ -1170,7 +1532,7 @@ window.Views.MeView = {
       <div class="list" v-if="history.length">
         <div class="litem" v-for="r in history" :key="r.id" @click="go('/record/' + r.id)">
           <div class="row between">
-            <div class="t1">{{ r.course_name }} <span class="muted sm">· {{ r.class_name }}</span><span class="badge badge-warn" v-if="r.returned" style="margin-left:6px">已打回</span></div>
+            <div class="t1">{{ r.course_name }} <span class="muted sm">· {{ r.class_name }}</span></div>
           </div>
           <div class="t2">{{ U.md(r.check_date) }} {{ U.weekdayCN(r.check_date) }} {{ U.periodText(r.period_from, r.period_to) }}</div>
           <div class="mt8"><span class="ibox" v-for="(c, ci) in classParts(r)" :key="c + ci">{{ c }}</span><span class="ibox ibox-ok">出勤 {{ r.actual_count }}/{{ r.expected_count }}</span></div>
