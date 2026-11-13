@@ -178,6 +178,8 @@ db/
   schema.sql               结构基线（截至 v20261102，幂等）
   demo-data.sql            演示数据（全部虚构，密码=学号）
   migrate-*.sql            功能增量脚本（含 3.x 照片对象存储、照片时间等）
+  migrate-3.9-photo-storage-shared.sql  photo_add_storage 权威定义 + taken_at 列（3.9.0）
+  export-schema.sql        结构导出脚本（只读，用于核对线上与仓库结构差异）
 docs/
   OPERATIONS.md            运维手册（账号规则 / 名单导入 / 发布经验）
 tests/
